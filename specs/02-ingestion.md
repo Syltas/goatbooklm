@@ -15,6 +15,8 @@
 
 User können in einem Notebook Wissensquellen hinzufügen — PDF-Upload, eingefügter Text oder eine Web-URL — die serverseitig extrahiert, in 800-Token-Chunks mit 100-Token-Overlap zerlegt, per OpenAI `text-embedding-3-small` embedded und in `public.chunks` (pgvector) persistiert werden. Der Sources-Panel-Platzhalter aus Spec 01 (`/notebooks/[notebookId]`, linkes Panel) wird mit einem „Add source"-Dialog und einer Source-Liste (Status-Badges, Chunk-Count, Retry, Delete) gefüllt. Diese Chunks sind die Grundlage für RAG-Chat (spätere Spec) und Citation-Highlighting (Spec 03), das die in `chunks.metadata` gespeicherten Char-Offsets konsumiert.
 
+**(Design-Review 2026-07-19) Visuelles System:** siehe `DESIGN.md` (Figtree all-sans, weiß/minimal, schwarze Primary-Pills, ein blauer Accent, Pastell nur für Notebook-Karten, cardless Panels, Hairlines statt Schatten) — verbindliche visuelle Source-of-Truth für alle UI dieser Spec. UI-Sprache Deutsch (bereits entschieden, siehe Spec 01). **Layout-Korrektur (ersetzt die frühere „3. Panel/rechter Viewer"-Formulierung):** Das Sources-Panel hat zwei Modi — Listen-Mode und Reader-Mode (Volltext-Ansicht einer geöffneten Quelle) — beide **im selben linken Panel**, kein eigenständiges drittes Panel. Details siehe §16 (umgeschrieben) und Spec 01 „Design-Review-Ergänzungen".
+
 **(Eng-Review 2026-07-19, Nachtrag — Queue-Rearchitektur, Product-Owner-Entscheidung 2026-07-19):** Die eigentliche Extraktions-/Chunking-/Embedding-Pipeline läuft **nicht mehr synchron in der Server-Action**, sondern asynchron über eine **pgmq-Queue + pg_cron-getriggerten Worker**. Add-Actions legen die `pending`-Row an, enqueuen einen Job und kehren sofort zurück; ein periodisch getriggerter Worker-Route-Handler zieht Jobs aus der Queue und führt dieselbe Pipeline aus (siehe §4 Punkt 1, §7, §9). Das war ursprünglich (siehe Non-Goals, jetzt korrigiert) als „kein v1-Scope" markiert — per Entscheid vom 2026-07-19 ist die Queue jetzt v1-Scope, weil sie das Vercel-Timeout-Risiko strukturell statt nur durch einen hohen `maxDuration`-Wert entschärft.
 
 `public.sources` und `public.chunks` (inkl. RLS, HNSW-Index) existieren bereits seit `supabase/migrations/20260719103134_create_core_schema.sql`. **Für dieses Feature sind zwei neue Migrationen nötig: (1) Storage-Bucket + `storage.objects`-Policies, (2) pgmq-Queue `ingestion_jobs` + pg_cron-Schedule (siehe §8) — keine neuen Spalten/Tabellen für `sources`/`chunks` selbst.**
@@ -157,7 +159,7 @@ Diese Entscheidungen sind für den Build bindend (nicht Teil der offenen Fragen 
 
 | Zustand | Verhalten |
 |---|---|
-| **Sources-Panel leer** | Hinweistext „Noch keine Quellen" + „Add source"-CTA (`data-test="sources-empty-cta"`). |
+| **Sources-Panel leer** | **(Design-Review 2026-07-19, geändert)** Kein kalter „Keine Quellen"-Text — stattdessen ein prominenter „+ Quellen hinzufügen"-Button (`data-test="sources-empty-cta"`, schwarze Primary-Pill laut DESIGN.md) als Hauptelement des leeren Listen-Mode. |
 | **Sources-Panel mit Einträgen** | Liste, jede Zeile: Typ-Icon (PDF/Text/Web), Titel, Status-Badge (`data-test="source-status-badge"`), Kebab/Buttons für Retry (nur bei `error`) und Delete (immer). |
 | **Status `pending`** | Badge zeigt „Wird verarbeitet…" (dezenter Spinner/Pulse), kein Chunk-Count. **(Eng-Review 2026-07-19, Nachtrag)** Deckt jetzt zwei Unterzustände ab: „gerade erst angelegt/enqueued, wartet auf den nächsten pg_cron-Tick" (typ. <15s) und den alten „Storage-Upload nicht abgeschlossen"-Fall (AC-11) — beide zeigen dieselbe Badge, kein separater UI-Zustand nötig. Panel pollt alle 2s, solange ≥1 Source non-final ist — **(Eng-Review 2026-07-19, OV8)** scoped Status-Fetch statt globalem `router.refresh()` (siehe §4 Punkt 5), damit ein paralleler Chat-Stream nicht gestört wird. |
 | **Status `processing`** | Badge zeigt „Wird verarbeitet…" (dezenter Spinner/Pulse), kein Chunk-Count — jetzt spezifisch: der Worker hat den Job aus `ingestion_jobs` gezogen und führt die Pipeline gerade aus. Gleiches Polling-Verhalten wie `pending`. |
@@ -518,8 +520,10 @@ app/(app)/notebooks/[notebookId]/sources/
     source-list.tsx
     source-list-item.tsx           # Icon, Titel, Status-Badge, Retry/Delete
     delete-source-dialog.tsx       # Confirm-Dialog
-    source-text-viewer.tsx         # (Eng-Review 2026-07-19, OV1) Quellen-Text-Viewer — zeigt
-                                    # content_text, mappt char_start/char_end auf DOM, scrollt,
+    source-text-viewer.tsx         # (Eng-Review 2026-07-19, OV1; Design-Review 2026-07-19,
+                                    # umgerahmt) Reader-Mode DESSELBEN Sources-Panels (kein 3.
+                                    # Panel/eigene Spalte) — zeigt content_text, Zurück-Pfeil zur
+                                    # Liste, mappt char_start/char_end auf DOM, scrollt,
                                     # <mark>-Highlight; segmentiertes/virtualisiertes Rendering für
                                     # große Texte (siehe neuer Abschnitt 16)
 
@@ -618,12 +622,23 @@ app/(app)/notebooks/[notebookId]/page.tsx   # rendert <SourcesPanel> statt Platz
 ### L. Eng-Review-Ergänzungen (2026-07-19)
 
 - [ ] AC-43 (F12): GIVEN das Sources-Panel WHEN es Chunk-Counts für `status='ready'`-Sources lädt THEN geschieht dies über **eine** gruppierte Query (Supabase `sources`-Select mit `chunks(count)`), nicht über N Einzel-Count-Queries pro Source.
-- [ ] AC-44 (OV1): GIVEN der Quellen-Text-Viewer zeigt eine Source WHEN er `char_start`/`char_end` aus einem Citation-Klick (Highlight-Bridge, Spec 03) übergeben bekommt THEN scrollt er zum korrekten Offset und hebt exakt `content_text.slice(char_start, char_end)` per `<mark>` hervor.
-- [ ] AC-45 (OV1): GIVEN eine Source mit bis zu 500.000 Zeichen `content_text` WHEN der Quellen-Text-Viewer sie rendert THEN bleibt die UI performant (segmentiertes/virtualisiertes Rendering statt eines einzigen Riesen-DOM-Knotens für den kompletten Text).
+- [ ] AC-44 (OV1, **umgeschrieben — Design-Review 2026-07-19**): GIVEN der Reader-Mode des Sources-Panels zeigt eine Source WHEN er `char_start`/`char_end` über den Highlight-Bridge-Callback erhält (ausgelöst durch „Quelle anzeigen" im Zitat-Popover aus Spec 03 — **nicht mehr durch einen direkten Klick auf den Zitat-Chip**, siehe Spec 03 §7) THEN wechselt das Sources-Panel in den Reader-Mode dieser Source, scrollt zum korrekten Offset und hebt exakt `content_text.slice(char_start, char_end)` per `<mark>` hervor (kurzer Highlight-Puls laut DESIGN.md, respektiert `prefers-reduced-motion`).
+- [ ] AC-45 (OV1, **umformuliert — Design-Review 2026-07-19**): GIVEN eine Source mit bis zu 500.000 Zeichen `content_text` WHEN der Reader-Mode des Sources-Panels sie rendert THEN bleibt die UI performant (segmentiertes/virtualisiertes Rendering statt eines einzigen Riesen-DOM-Knotens für den kompletten Text).
 - [ ] AC-46 (OV2): GIVEN eine Source mit `status='processing'` und `updated_at` älter als 10 Minuten WHEN das Sources-Panel lädt oder pollt THEN wird sie als `status='error'` mit `error_message`="Verarbeitung abgebrochen (Timeout/Neustart)." behandelt, und ein Retry überschreibt diesen hängengebliebenen Lauf (siehe AC-41-Ausnahme).
 - [ ] AC-47 (Nachtrag — Queue-Rearchitektur): GIVEN eine valide Add-Source-Action (PDF nach Upload, Text, Web nach SSRF-Pre-Check) WHEN sie erfolgreich zurückkehrt THEN existiert dafür genau ein Eintrag in der `ingestion_jobs`-Queue mit Payload `{ source_id: <sourceId> }`.
 - [ ] AC-48 (Nachtrag — Queue-Rearchitektur): GIVEN ein Job liegt in `ingestion_jobs` WHEN der nächste pg_cron-Tick den Worker triggert THEN zieht `pgmq.read` den Job, `status` wechselt zu `processing` und danach zu `ready`/`error`, und der Job wird per `pgmq.delete` aus der Queue entfernt — ohne dass eine Client-Interaktion nötig ist.
 - [ ] AC-49 (Nachtrag — Queue-Rearchitektur): GIVEN ein simulierter Worker-Crash (Job wird gelesen, aber nicht per `pgmq.delete` abgeschlossen, z.B. durch einen erzwungenen Abbruch im Test) WHEN die Visibility-Timeout (`vt=600`) abläuft THEN wird derselbe Job beim nächsten `pgmq.read` erneut ausgeliefert und die Source erreicht nach dem folgenden Worker-Durchlauf `status='ready'` (bzw. `error` bei einem inhaltlichen Fehler) — sie bleibt nicht dauerhaft auf `processing` hängen.
+
+### M. Design-Review-Ergänzungen (2026-07-19)
+
+**Layout-Korrektur** (ersetzt die frühere „3. Panel/rechter Viewer"-Formulierung von OV1, siehe §16): Der Quellen-Text-Viewer ist der **Reader-Mode** des linken Sources-Panels, kein eigenständiges drittes Panel. Das Sources-Panel togglet zwischen Listen-Mode (Quellen-Rows) und Reader-Mode (Volltext einer geöffneten Quelle, mit Zurück-Pfeil zur Liste).
+
+- [ ] AC-50: GIVEN das Sources-Panel WHEN es initial geladen wird THEN startet es im Listen-Mode; ein Klick auf eine Source-Row wechselt in den Reader-Mode derselben Source.
+- [ ] AC-51: GIVEN das Sources-Panel im Reader-Mode WHEN der User den Zurück-Pfeil (`data-test="source-reader-back"`) klickt THEN wechselt das Panel zurück in den Listen-Mode, ohne dass sich die Quellen-Liste selbst verändert.
+- [ ] AC-52: GIVEN das Sources-Panel WHEN gerendert (Listen- oder Reader-Mode) THEN besitzt es oben ein Collapse-Icon (`data-test="sources-panel-collapse"`), das das gesamte Panel ein-/ausklappt, unabhängig vom aktuellen Mode.
+- [ ] AC-53 (Empty-State-Wärme): GIVEN das Sources-Panel im Listen-Mode WHEN 0 Sources existieren THEN zeigt es prominent einen „+ Quellen hinzufügen"-Button (`data-test="sources-empty-cta"`) statt einer kalten „Keine Quellen"-Zeile (siehe §6-Tabelle).
+
+*(Design-Review 2026-07-19 — Referenz: `DESIGN.md`. Mobile-Verhalten des Sources-Panels/Reader-Mode: siehe Spec 01 „Design-Review-Ergänzungen" AC-45…AC-47 und Spec 03 §14 — dort ist das Reader-Overlay auf ≤768px als Vollbild spezifiziert.)*
 
 ## 13. Definition of Done (Qualitäts-Gates)
 
@@ -631,7 +646,8 @@ app/(app)/notebooks/[notebookId]/page.tsx   # rendert <SourcesPanel> statt Platz
 - [ ] DoD-Queue (Eng-Review 2026-07-19, Nachtrag — Queue-Rearchitektur): zweite Migration aktiviert `pgmq`/`pg_cron`/`pg_net`, legt die Queue `ingestion_jobs` an und registriert den `cron.schedule(...)`-Job (§8); Queue-Operationen laufen nachweislich nur service-role (kein `authenticated`-Grant auf `pgmq`-interne Tabellen); `INGESTION_WORKER_SECRET` ist gesetzt und der Worker-Endpoint lehnt Requests ohne/mit falschem Secret mit `401` ab.
 - [ ] DoD-Auth: jede Ingestion-Action läuft über `enhanceAction({ auth: true, schema })`; `user.id` kommt ausschließlich aus `supabase.auth.getUser()`; `enqueueIngestionJob`/`retrySource`/`deleteSource` prüfen Ownership explizit im Service zusätzlich zu RLS; der Worker-Endpoint selbst hat keine User-Auth (Secret-Auth, siehe DoD-Queue) und läuft mit `createAdminClient()`.
 - [ ] DoD-i18n: kein Gate (projektweit optional) — Strings dürfen hartkodiert bleiben.
-- [ ] DoD-Test-Selektoren: `data-test` auf jedem interaktiven Element (Tab-Trigger, Datei-Dropzone, alle Submit-Buttons, Status-Badge, Retry-/Delete-Button, Confirm-/Abbrechen-Buttons im Delete-Dialog).
+- [ ] DoD-Test-Selektoren: `data-test` auf jedem interaktiven Element (Tab-Trigger, Datei-Dropzone, alle Submit-Buttons, Status-Badge, Retry-/Delete-Button, Confirm-/Abbrechen-Buttons im Delete-Dialog). **(Design-Review 2026-07-19, erweitert):** zusätzlich `source-reader-back`, `sources-panel-collapse`.
+- [ ] DoD-Design (Design-Review 2026-07-19): Sources-Panel (Listen-/Reader-Mode) folgt `DESIGN.md` (Figtree, cardless Rows mit Hairlines statt Cards in der Liste, Pastell NICHT im Sources-Panel — nur auf Notebook-Karten laut Spec 01 —, schwarze Primary-Pill für „+ Quellen hinzufügen", `--highlight`-Wash beim Reader-Sprung).
 - [ ] DoD-Nav/Routing (Eng-Review 2026-07-19, Nachtrag, korrigiert): **ein** neuer Top-Level-Route-Handler nötig — `app/api/ingestion-worker/route.ts` (`maxDuration=300`); das Sources-Panel selbst lebt weiter ohne neue Route in `/notebooks/[notebookId]` aus Spec 01, `SourcesPanel` ersetzt den dortigen Platzhalter.
 - [ ] DoD-Verify: `pnpm tsc --noEmit` → 0 Fehler.
 - [ ] DoD-Verify: `pnpm next lint` → 0 Fehler.
@@ -643,7 +659,7 @@ app/(app)/notebooks/[notebookId]/page.tsx   # rendert <SourcesPanel> statt Platz
 - [ ] DoD-SSRF: dedizierter Test für `assertSafeUrl` — mindestens je 1 Fall für `localhost`, eine private IPv4 (`10.x`/`172.16-31.x`/`192.168.x`), `127.0.0.1`, ein Nicht-http(s)-Schema (`file://`) — alle müssen werfen; eine öffentliche HTTPS-URL darf nicht werfen. **(Eng-Review 2026-07-19, OV5, erweitert):** zusätzlich ein Test für „Redirect auf eine interne IP" (öffentliche Ursprungs-URL, die per 3xx auf `127.0.0.1`/`169.254.169.254` weiterleitet → muss im Redirect-Loop blockiert werden) und ein DNS-Rebinding-Szenario (Hostname löst beim Prüf-Hop auf eine öffentliche IP auf, beim simulierten Verbindungs-Hop auf eine private IP → muss auf der geprüften/gepinnten IP verbinden, nicht erneut re-resolven).
 - [ ] DoD-Node-Version (Eng-Review 2026-07-19, F5): `package.json` enthält `"engines": { "node": ">=22" }`; Vercel-Projekt-Node-Version ist auf 22.x gesetzt (Deploy-Checklist-Punkt vor erstem Produktions-Deploy).
 - [ ] DoD-Convention (Eng-Review 2026-07-19, F8): alle Server-Actions dieser Spec nutzen `ActionResult<T>` aus `lib/server/action.ts` (siehe Spec 01 §8), kein lokaler Ad-hoc-Union-Type.
-- [ ] DoD-QA: alle AC-1…AC-49 grün verifiziert (manuell oder via `/qa`).
+- [ ] DoD-QA: alle AC-1…AC-53 grün verifiziert (manuell oder via `/qa`).
 
 ## 14. Risks & Open Questions
 
@@ -677,23 +693,38 @@ app/(app)/notebooks/[notebookId]/page.tsx   # rendert <SourcesPanel> statt Platz
 
 ---
 
-## 16. Quellen-Text-Viewer (Eng-Review 2026-07-19, OV1)
+## 16. Quellen-Text-Viewer = Reader-Mode des Sources-Panels (Eng-Review 2026-07-19, OV1; **umgeschrieben — Design-Review 2026-07-19**)
 
-**Der Quellen-Text-Viewer ist explizit Scope dieser Spec (Spec 02), nicht von Spec 03.**
-Spec 03 (Chat-Grounding) konsumiert ihn ausschließlich über einen definierten Callback-Contract
-(`onCite({ chunkId, sourceId })` → Viewer, siehe Spec 03 §7 Highlight-Bridge) und baut ihn nicht
-selbst. Grund: `content_text` und das Sources-Panel entstehen beide hier; der Viewer ist eine
-natürliche Erweiterung des Panels, keine eigenständige Chat-Komponente.
+**Der Quellen-Text-Viewer ist KEIN eigenständiges drittes Panel.** Diese Spec (§16) hieß
+ursprünglich noch „eigene Ansicht/eigener Tab im Sources-Panel" — die Design-Review präzisiert
+das: der Viewer ist der **Reader-Mode** desselben linken Sources-Panels (siehe DESIGN.md
+„Layout" + Spec 01 „Design-Review-Ergänzungen", DE-2). Der Viewer ist weiterhin explizit Scope
+dieser Spec (Spec 02), nicht von Spec 03 — Spec 03 (Chat-Grounding) konsumiert ihn ausschließlich
+über den Callback-Contract `onCite({ chunkId, sourceId })` (siehe Spec 03 §7 Highlight-Bridge)
+und baut ihn nicht selbst.
 
-**Funktionsumfang:**
+**Zwei Modi desselben Panels:**
 
-- Zeigt `sources.content_text` einer Source in einer eigenen Ansicht/einem Tab im Sources-Panel
-  (`_components/source-text-viewer.tsx`, siehe §11 Datei-Struktur).
-- Nimmt optional `{ charStart, charEnd }` entgegen (z.B. vom Highlight-Bridge-Callback aus Spec 03):
-  scrollt zur entsprechenden Position und rendert ein `<mark>`-Highlight über
-  `content_text.slice(charStart, charEnd)`.
-- Fehlen `charStart`/`charEnd` (z.B. Alt-Chunk ohne Metadata) → Viewer öffnet ohne Scroll/Highlight
-  (graceful degrade, konsistent mit Spec 03 AC-G4).
+- **Listen-Mode** (Default): Quellen-Rows mit Checkbox, Typ-Icon, Titel, Status-Badge, Add-Button,
+  Sort — wie in §6/§11 beschrieben.
+- **Reader-Mode**: eine einzelne, geöffnete Quelle als Volltext (`content_text`), mit einem
+  Zurück-Pfeil (`data-test="source-reader-back"`) oben, der zur Liste zurückführt. Der Wechsel
+  Listen-Mode → Reader-Mode passiert durch (a) Klick auf eine Source-Row in der Liste, oder (b)
+  den Highlight-Bridge-Callback aus Spec 03 (Klick auf „Quelle anzeigen" im Zitat-Popover, **nicht
+  mehr** ein direkter Klick auf den Zitat-Chip selbst — siehe Spec 03 §7, umgeschrieben).
+
+**Funktionsumfang (inhaltlich unverändert gegenüber der ursprünglichen OV1-Fassung — nur der
+Rahmen, „3. Panel" vs. „Reader-Mode desselben Panels", ist korrigiert):**
+
+- Zeigt `sources.content_text` einer Source im Reader-Mode des Sources-Panels
+  (`_components/source-text-viewer.tsx`, siehe §11 Datei-Struktur — bleibt Teil des Sources-Panels,
+  nicht einer dritten Spalte).
+- Nimmt optional `{ charStart, charEnd }` entgegen (vom Highlight-Bridge-Callback aus Spec 03,
+  ausgelöst über „Quelle anzeigen" im Popover): scrollt zur entsprechenden Position und rendert
+  ein `<mark>`-Highlight (`--highlight`-Wash laut DESIGN.md, kurzer Puls, respektiert
+  `prefers-reduced-motion`) über `content_text.slice(charStart, charEnd)`.
+- Fehlen `charStart`/`charEnd` (z.B. Alt-Chunk ohne Metadata) → Reader-Mode öffnet ohne
+  Scroll/Highlight (graceful degrade, konsistent mit Spec 03 AC-G4).
 
 **Performance-Anforderung (bis zu 500.000 Zeichen, siehe §2 Text-Tab-Limit):** Ein einzelner
 DOM-Knoten mit dem kompletten Text wäre bei 500k Zeichen ein Performance- und Scroll-Problem
@@ -703,14 +734,15 @@ Zeichen-Fenster) zerlegt, von denen nur die im/nahe am Viewport sichtbaren tats�
 gemountet werden (virtualisiert, analog `react-window`/`react-virtual`-Pattern); beim Scroll-zu-Offset
 wird zuerst zum richtigen Segment gesprungen, dann fein innerhalb des Segments positioniert.
 
-**Neue ACs:** siehe §12 Gruppe L (AC-44 Offset-Highlight-Korrektheit, AC-45 Performance/virtualisiertes
-Rendering).
+**Neue/umgeschriebene ACs:** siehe §12 Gruppe L (AC-44 Offset-Highlight-Korrektheit — umgeschrieben
+für Popover-Einstieg, AC-45 Performance/virtualisiertes Rendering — umformuliert) sowie Gruppe M
+(AC-50…AC-53, Listen-/Reader-Mode-Toggle, Zurück-Pfeil, Panel-Collapse, Empty-State-Wärme).
 
 ---
 
-**Empfohlener nächster Schritt:** `/plan-eng-review specs/02-ingestion.md` (non-trivial: DB + Service + Server-Action + Worker/Queue + UI + externe Netzwerk-/API-Calls), danach `/feature-builder` mit dieser Spec als Input (Build-Reihenfolge: nach Spec 01), danach `/qa` gegen AC-1…AC-49.
+**Empfohlener nächster Schritt:** `/plan-eng-review specs/02-ingestion.md` (non-trivial: DB + Service + Server-Action + Worker/Queue + UI + externe Netzwerk-/API-Calls), danach `/feature-builder` mit dieser Spec als Input (Build-Reihenfolge: nach Spec 01), danach `/qa` gegen AC-1…AC-53.
 
-`Spec written: specs/02-ingestion.md — 49 acceptance criteria, kein Blocker, next: /plan-eng-review (Eng-Review 2026-07-19 eingearbeitet, inkl. Queue-Rearchitektur-Nachtrag)`
+`Spec written: specs/02-ingestion.md — 53 acceptance criteria (49 ursprünglich + 4 aus der Design-Review 2026-07-19: Listen-/Reader-Mode-Toggle, Zurück-Pfeil, Panel-Collapse, Empty-State-Wärme), kein Blocker, next: /plan-eng-review (Eng-Review 2026-07-19 eingearbeitet, inkl. Queue-Rearchitektur-Nachtrag)`
 
 ## GSTACK REVIEW REPORT
 
@@ -718,10 +750,11 @@ Rendering).
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 24 issues (12 section + 12 outside voice), 0 critical gaps, all folded into specs |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | pending (next step) |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score 4/10 → 9/10, 13 decisions; realigned to real NotebookLM (2 approved mockups) |
 | Outside Voice | Claude subagent (opus) | Independent 2nd opinion | 1 | issues_found | 12 additive findings, no cross-model tension |
 
-- **CROSS-MODEL:** Outside voice (opus, fresh context) produced 12 additive findings, zero contradictions with the section review — both reviewers agree. Its #3 refined the chunker fix (relaxed token-count ACs), #12 extended the eval decision (H5 into eval). Biggest flagged residual risk: grounding gate rests on a single 0.35 similarity threshold that `text-embedding-3-small` may not separate cleanly — addressed via early calibration milestone + margin/relative-drop fallback (D15.6).
-- **VERDICT:** ENG CLEARED — 24 findings all resolved into the specs; scope accepted as-is then expanded by Product-Owner decision (async pgmq+pg_cron ingestion queue moved into v1). Ready to implement after `/plan-design-review`.
+- **CROSS-MODEL:** Eng outside voice (opus) produced 12 additive findings, zero contradictions. Biggest residual risk: grounding gate rests on a single 0.35 similarity threshold that `text-embedding-3-small` may not separate cleanly — addressed via early calibration milestone + margin/relative-drop fallback. Design outside voice (Codex) skipped — CLI not installed.
+- **DESIGN:** User supplied real NotebookLM screenshots → aligned to that look (minimal/white/all-sans Figtree, black primary pills, citation popover, source reader in left panel, Studio panel right deferred as v1 non-goal). DESIGN.md created; 2 mockups approved (see Approved Mockups). Layout realigned from 3-working-panels to Sources|Chat|Studio-deferred.
+- **VERDICT:** ENG + DESIGN CLEARED — 24 eng findings + 13 design decisions folded into specs; async pgmq+pg_cron ingestion queue moved into v1. Ready to implement.
 
 NO UNRESOLVED DECISIONS
