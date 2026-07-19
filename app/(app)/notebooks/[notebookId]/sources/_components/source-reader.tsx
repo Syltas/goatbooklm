@@ -120,7 +120,17 @@ export function SourceReader({
 
   useEffect(() => {
     if (hasHighlight && highlightRef.current) {
-      highlightRef.current.scrollIntoView({ block: "center", behavior: "smooth" })
+      // AC-48 (Design-Review 2026-07-19): under `prefers-reduced-motion:
+      // reduce`, the citation jump scrolls instantly instead of
+      // smooth-scrolling — the highlight-pulse keyframe is already gated by
+      // `motion-safe:` above.
+      const reducedMotion =
+        typeof window !== "undefined" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      highlightRef.current.scrollIntoView({
+        block: "center",
+        behavior: reducedMotion ? "auto" : "smooth",
+      })
     }
     // Deliberately re-runs only on source/offset changes, not on every
     // `segments` recompute.

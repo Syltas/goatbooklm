@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 
+import { buildInitialMessages } from "@/lib/chat/hydrate"
 import { createNotebookService } from "@/lib/notebooks/service"
 import { createClient } from "@/lib/supabase/server"
 
@@ -34,10 +35,26 @@ export default async function NotebookDetailPage({
 
   if (sourcesError) throw sourcesError
 
+  const sources = (sourcesData ?? []) as SourceWithChunkCount[]
+
+  // §6 "Hydration" — messages load chronologically (`created_at asc`) and
+  // are handed to `useChat` as `initialMessages`, citations included (see
+  // `buildInitialMessages`).
+  const { data: messagesData, error: messagesError } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("notebook_id", notebookId)
+    .order("created_at", { ascending: true })
+
+  if (messagesError) throw messagesError
+
+  const initialMessages = await buildInitialMessages(supabase, messagesData ?? [])
+
   return (
     <NotebookDetailShell
       notebook={notebook}
-      initialSources={(sourcesData ?? []) as SourceWithChunkCount[]}
+      initialSources={sources}
+      initialMessages={initialMessages}
     />
   )
 }

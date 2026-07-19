@@ -11,16 +11,19 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
+import { ChatPanel } from "@/components/chat/chat-panel"
+import type { OnCiteArgs } from "@/components/chat/citation-chip"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { cn } from "@/lib/utils"
 import type { Notebook } from "@/lib/notebooks/service"
+import type { ChatUIMessage } from "@/lib/chat/types"
+import { cn } from "@/lib/utils"
 
 import { SourcesPanel } from "../sources/_components/sources-panel"
 import { useSourcesPolling } from "../sources/_components/use-sources-polling"
 import type { SourceWithChunkCount } from "../sources/types"
-import { ChatPanelBody, PANEL_LABEL, type PanelKey, StudioPanelBody } from "./panel-placeholders"
-import { SourceReaderProvider } from "./source-reader-context"
+import { PANEL_LABEL, type PanelKey, StudioPanelBody } from "./panel-placeholders"
+import { SourceReaderProvider, useSourceReader } from "./source-reader-context"
 
 function CollapseIcon({
   panelKey,
@@ -97,12 +100,59 @@ function DesktopPanel({
 
 type MobilePanel = "sources" | "studio"
 
+/**
+ * Bridges the Chat panel to the shared `SourceReaderProvider` (§7 Highlight-
+ * Bridge) — this is the only mount of `ChatPanel` (unlike Sources, Chat has
+ * no separate desktop/mobile-sheet mount, it's always visible, see
+ * DESIGN.md's layout), so `onCite` both flips the reader context AND — on a
+ * mobile viewport, where Sources/Studio live behind the bottom-sheet — opens
+ * that sheet so the reader jump is actually visible (AC-51). Rendered
+ * *inside* `SourceReaderProvider` (below), so `useSourceReader()` is valid
+ * here even though the shell itself sits outside the provider it renders.
+ */
+function ChatPanelSlot({
+  notebookId,
+  initialMessages,
+  readyCount,
+  onMobileReaderOpen,
+}: {
+  notebookId: string
+  initialMessages: ChatUIMessage[]
+  readyCount: number
+  onMobileReaderOpen: () => void
+}) {
+  const { openSource } = useSourceReader()
+
+  function handleCite({ sourceId, charStart, charEnd }: OnCiteArgs) {
+    openSource(sourceId, { charStart, charEnd })
+
+    // Desktop already shows the Sources-Panel inline — no sheet to open.
+    // `matchMedia` (not a hook/state) is checked at click time so this never
+    // fires from a desktop viewport just because the window was once
+    // narrow.
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      onMobileReaderOpen()
+    }
+  }
+
+  return (
+    <ChatPanel
+      notebookId={notebookId}
+      initialMessages={initialMessages}
+      readyCount={readyCount}
+      onCite={handleCite}
+    />
+  )
+}
+
 export function NotebookDetailShell({
   notebook,
   initialSources,
+  initialMessages,
 }: {
   notebook: Notebook
   initialSources: SourceWithChunkCount[]
+  initialMessages: ChatUIMessage[]
 }) {
   const [collapsed, setCollapsed] = useState<Record<PanelKey, boolean>>({
     sources: false,
@@ -120,6 +170,12 @@ export function NotebookDetailShell({
     notebook.id,
     initialSources
   )
+
+  // Derived from the SAME live-polled `sources` the Sources-Panel renders
+  // (not a static server prop refreshed only on `router.refresh()`) — the
+  // Chat input unlocks the instant a source's status flips to `ready`,
+  // without waiting on a full RSC round trip (AC-B1).
+  const readyCount = sources.filter((source) => source.status === "ready").length
 
   function toggle(panel: PanelKey) {
     setCollapsed((prev) => ({ ...prev, [panel]: !prev[panel] }))
@@ -155,7 +211,12 @@ export function NotebookDetailShell({
             onToggle={() => toggle("chat")}
             expandedClassName="flex min-w-0 flex-1"
           >
-            <ChatPanelBody />
+            <ChatPanelSlot
+              notebookId={notebook.id}
+              initialMessages={initialMessages}
+              readyCount={readyCount}
+              onMobileReaderOpen={() => setMobilePanel("sources")}
+            />
           </DesktopPanel>
 
           <DesktopPanel

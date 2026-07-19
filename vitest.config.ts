@@ -16,6 +16,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.ts"],
-    exclude: ["node_modules/**", ".next/**", "e2e/**"],
+    // evals/** hits the real Claude API (evals/guardrail.eval.ts) and must
+    // stay out of the normal LLM-free `pnpm test` run — see
+    // evals/vitest.config.ts (invoked separately via `pnpm eval`). Excluded
+    // here too, defense-in-depth, even though the `*.eval.ts` filename
+    // already misses the `**/*.test.ts` include pattern.
+    exclude: ["node_modules/**", ".next/**", "e2e/**", "evals/**"],
   },
 })

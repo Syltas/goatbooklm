@@ -10,11 +10,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "vitest run --config evals/vitest.config.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",
     "@ai-sdk/openai": "^4.0.16",
+    "@ai-sdk/react": "^4.0.34",
     "@hookform/resolvers": "^5.4.0",
     "@mozilla/readability": "^0.6.0",
     "@supabase/ssr": "^0.12.3",

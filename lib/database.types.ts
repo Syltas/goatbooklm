@@ -234,6 +234,22 @@ export type Database = {
     Functions: {
       delete_ingestion_job: { Args: { msg_id: number }; Returns: boolean }
       enqueue_ingestion_job: { Args: { payload: Json }; Returns: number }
+      match_chunks: {
+        Args: {
+          p_match_count: number
+          p_min_similarity: number
+          p_notebook_id: string
+          p_query_embedding: string
+        }
+        Returns: {
+          chunk_id: string
+          chunk_index: number
+          content: string
+          metadata: Json
+          similarity: number
+          source_id: string
+        }[]
+      }
       read_ingestion_jobs: {
         Args: { p_qty?: number; p_vt?: number }
         Returns: {
