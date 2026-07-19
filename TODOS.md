@@ -2,6 +2,15 @@
 
 Deferred work captured during planning. Each item has enough context to pick up cold.
 
+## Multimedia-Upload als Source-Typen — nach Core Loop mit PDF (Andi, 2026-07-19)
+
+- **What:** Weitere Quellen-Typen jenseits von pdf/text/web: Audio, Video, Bilder, YouTube-URLs.
+- **Why:** NotebookLM unterstützt Multimedia-Quellen; Kern des späteren Studio-Ausbaus (Audio/Video-Overviews brauchen entsprechende Inputs).
+- **Pros:** Deutlich breiterer Quellen-Funnel; Voraussetzung für Studio-Features.
+- **Cons:** Transkription (Whisper o.ä.) + Frame-/OCR-Pipelines = eigene Verarbeitungsstrecken, Kosten pro Ingest steigen.
+- **Context:** Ansatzpunkte existieren bereits: `sources.type`-Check-Constraint erweitern (Migration), Ingestion-Service ist queue-basiert (pgmq) und pro Typ erweiterbar (`extract.ts` bekommt pro Typ einen Extractor, Rest der Pipeline — Chunking 800/100, Embedding, Reader — bleibt identisch). Storage-Bucket nimmt heute nur `application/pdf` an → MIME-Allowlist erweitern.
+- **Depends on / blocked by:** Core Loop (Spec 01–03) gebaut und mit PDF stabil. Entscheid von Andi: erst ansehen, wenn Core Loop mit PDF steht.
+
 ## Rate-Limiting pro User (Ingestion + Chat) — vor Public Launch
 
 - **What:** Per-User-Limits auf die Ingestion-Actions und `/api/chat`.

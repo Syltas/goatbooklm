@@ -9,7 +9,8 @@
       "Read",
       "Glob",
       "Grep",
-      "echo"
+      "WebFetch",
+      "WebSearch"
     ],
     "deny": [
       "Bash(rm -rf /*)",
