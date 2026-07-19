@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "echo"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -rf ~)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fdx*)",
+      "Bash(sudo*)",
+      "Bash(chmod -R 777*)",
+      "Bash(dd *)",
+      "Bash(mkfs*)"
+    ]
+  }
+}
