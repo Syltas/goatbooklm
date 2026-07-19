@@ -108,7 +108,7 @@ User-Frage (useChat POST /api/chat { notebookId, question })
   │                   (User-Turn-Content = <sources>-Block ⊕ "Frage: …"; question aus Schritt 3,
   │                   NICHT aus einem vom Client mitgeschickten messages-Array — geforgte
   │                   Assistant-Turns im Body können den Prompt damit nicht beeinflussen)
-  ├─ 10. Stream: streamText({ model: anthropic('claude-sonnet-5'), system, messages, temperature:0.2, maxOutputTokens:1024 })
+  ├─ 10. Stream: streamText({ model: anthropic('claude-sonnet-5'), system, messages, temperature:0.2, maxOutputTokens:8192 })
   │        → toUIMessageStreamResponse() an den Client. **(Eng-Review 2026-07-19, F4, NEU):** Die
   │        Route konsumiert den Stream zusätzlich serverseitig (`consumeStream`/`consumeSseStream`),
   │        unabhängig davon, ob der Client verbunden bleibt.
@@ -129,7 +129,7 @@ User-Frage (useChat POST /api/chat { notebookId, question })
 | History | **letzte 6 Messages** (3 Turns), server-seitig aus `messages` geladen (Eng-Review 2026-07-19, OV4 — nicht mehr aus dem Client-Body) | Genug für Pronomen-/Kontextauflösung, ohne Prompt aufzublähen. |
 | Retrieval-Query | **nur aktuelle User-Frage** | Deterministisch, kein Extra-LLM-Call. Bekannte Schwäche bei knappen Follow-ups ("und dazu mehr?") — akzeptiert v1, siehe DE-6. |
 | `temperature` | 0.2 | Grounding-Treue vor Kreativität; minimiert Formulierungs-Drift und erfundene Zahlen. |
-| `maxOutputTokens` | 1024 | Antworten kompakt; deckt lange Zusammenfassungen ab. |
+| `maxOutputTokens` | 8192 **(Investigate-Fix 2026-07-19, war 1024)** | 1024 Output-Tokens = nur ~2.000 Zeichen deutscher Text (~2,1 Zeichen/Token inkl. Markdown/Zitate) — reale Synthese-Antworten brachen mit finishReason=length mid-Satz ab (Dogfood-Befund). 8192 deckt lange Briefings; maxDuration=120 trägt die Streaming-Dauer. |
 
 **(Eng-Review 2026-07-19, OV6) Threshold-Kalibrierung als eigener Meilenstein — größtes Risiko dieser Spec:**
 
@@ -219,7 +219,7 @@ export const runtime = 'nodejs'   // Supabase-SSR-Client + Node-APIs, nicht Edge
 
 **(Eng-Review 2026-07-19, F3) Begründung `maxDuration = 120` statt 30:** Vercel zählt die
 **gesamte Wall-Clock-Zeit inklusive Streaming** gegen das Funktions-Limit, nicht nur die Zeit bis
-zum ersten Token. Bei 30s riskiert eine lange Antwort (nahe `maxOutputTokens=1024`) oder ein
+zum ersten Token. Bei 30s riskiert eine lange Antwort (nahe `maxOutputTokens=8192`) oder ein
 Anthropic-seitiger Retry einen Mid-Stream-504, der dem Nutzer eine abgeschnittene Antwort zeigt.
 Auf Vercel Pro/Fluid Compute ist 120s **kostenneutral** gegenüber 30s — abgerechnet wird die
 tatsächlich verbrauchte Zeit, nicht das konfigurierte Limit; ein höheres Limit kostet nichts

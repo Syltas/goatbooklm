@@ -17,6 +17,7 @@ import {
   NO_SOURCES_MESSAGE,
 } from "@/lib/chat/prompt"
 import { parseCitations } from "@/lib/chat/citations"
+import { CHAT_MAX_OUTPUT_TOKENS } from "@/lib/chat/limits"
 import { normalizeRefusal } from "@/lib/chat/refusal"
 import { chatRequestSchema } from "@/lib/chat/schema"
 import { createChatService } from "@/lib/chat/service"
@@ -35,7 +36,7 @@ import { createClient } from "@/lib/supabase/server"
  * §3.4 HTTP-Contract. `maxDuration=120` (not 30, Eng-Review F3): Vercel bills
  * wall-clock time including streaming, not just time-to-first-token — 120s
  * is cost-neutral vs. 30s unless actually used, and a long answer near
- * `maxOutputTokens=1024` (or an Anthropic-side retry) could otherwise hit a
+ * `maxOutputTokens=8192` (or an Anthropic-side retry) could otherwise hit a
  * mid-stream 504. `runtime="nodejs"`: the request-scoped Supabase SSR client
  * + `node:crypto` need Node APIs, not Edge.
  */
@@ -235,7 +236,13 @@ export async function POST(request: Request) {
         system: GROUNDING_SYSTEM_PROMPT,
         messages: modelMessages,
         temperature: 0.2,
-        maxOutputTokens: 1024,
+        // 8192, nicht 1024 (Spec §3.3 alt): 1024 Output-Tokens sind bei
+        // deutschem Text + Markdown + Zitat-Markern nur ~2.000 Zeichen
+        // (~2,1 Zeichen/Token, empirisch verifiziert) — reale Synthese-
+        // Antworten ("fasse beide Briefings zusammen") rissen das Budget
+        // mid-Satz mit finishReason='length'. 8192 deckt lange Briefings;
+        // maxDuration=120 reicht für die Streaming-Dauer.
+        maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
       })
 
       writer.merge(toUIMessageStream({ stream: result.stream, onError: mapStreamError }))
