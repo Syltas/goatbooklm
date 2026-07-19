@@ -54,3 +54,4 @@ supabase/.branches
 
 # gstack tooling state
 /.gstack/
+.gstack/
