@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "NEXT_DIST_DIR=.next-build next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",

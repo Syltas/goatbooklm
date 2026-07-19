@@ -55,3 +55,6 @@ supabase/.branches
 # gstack tooling state
 /.gstack/
 .gstack/
+
+# Separate prod-build output (never clobbers dev .next)
+/.next-build/
