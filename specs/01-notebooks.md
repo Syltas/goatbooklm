@@ -15,6 +15,8 @@
 
 `/notebooks` wird die neue App-Home und ersetzt `/dashboard` vollständig. Eingeloggte User sehen dort ein Grid ihrer eigenen Notebooks, können neue anlegen, umbenennen/bearbeiten und löschen. Jedes Notebook öffnet eine Detailseite (`/notebooks/[notebookId]`), die in dieser Spec nur als Shell (Titel + zwei leere Platzhalter-Panels) existiert — Inhalt folgt in Spec 02 (Sources) und Spec 03 (Chat).
 
+Im Zuge dieses Features wird zusätzlich die gesamte bestehende UI (Landing-Page, Login, Signup, App-Header — aktuell Englisch) auf durchgängig deutsche Texte umgestellt (Entscheid: App-Sprache Deutsch, siehe Annahme 13).
+
 Die Tabelle `public.notebooks` (inkl. RLS-Owner-Policy) existiert bereits seit `supabase/migrations/20260719103134_create_core_schema.sql`. **Für dieses Feature ist keine neue Migration nötig.**
 
 ## 2. Non-Goals (explizit außerhalb v1)
@@ -102,6 +104,15 @@ app/(app)/notebooks/
     delete-notebook-dialog.tsx  # Confirm-Dialog
   [notebookId]/
     page.tsx                    # Server Component: RLS-Fetch, notFound() bei leer, Shell-Layout
+                                 # (Eng-Review 2026-07-19, OV7, aktualisiert durch Queue-Rearchitektur
+                                 # in Spec 02): braucht KEIN `maxDuration` — die Ingestion-Pipeline
+                                 # läuft asynchron über eine pgmq-Queue + einen separaten
+                                 # Worker-Route-Handler (`app/api/ingestion-worker/route.ts`,
+                                 # `maxDuration = 300`), nicht mehr in einer von dieser Page
+                                 # getriggerten Server-Action. Chat (Spec 03) läuft separat über
+                                 # `app/api/chat/route.ts` mit eigenem `maxDuration = 120`. Alle drei
+                                 # Routen (page.tsx ohne maxDuration, ingestion-worker=300,
+                                 # chat=120) koexistieren widerspruchsfrei.
     loading.tsx                 # Skeleton-Detail
 
 # Entfernt
@@ -136,6 +147,12 @@ DeleteNotebookSchema = { id: uuid }
 create(data: CreateNotebookInput & { userId }) → Notebook
 list(userId) → Notebook[]                       // sortiert nach created_at desc (Annahme 1)
 getById(id, userId) → Notebook | null            // RLS-gestützt, kein manueller user_id-Filter zusätzlich (Annahme 6)
+                                                  // (Eng-Review 2026-07-19, OV9): id wird VOR dem Query als
+                                                  // UUID validiert (zod `.uuid()`-Guard am Service- bzw.
+                                                  // Page-Eingang); ist id kein syntaktisch valides UUID,
+                                                  // liefert getById `null` statt die Query auszuführen —
+                                                  // sonst wirft PostgREST `invalid input syntax for type uuid`
+                                                  // und die Route würde mit 500 statt mit notFound() (404) enden.
 update(id, data: Partial<CreateNotebookInput>, userId) → Notebook
 delete(id, userId) → void
 ```
@@ -148,7 +165,20 @@ updateNotebookAction(input) → { data: Notebook } | { error: string }
 deleteNotebookAction(input: { id }) → { success: true } | { error: string }
 ```
 
-Alle drei rufen nach Erfolg `revalidatePath('/notebooks')` (und bei Update zusätzlich `revalidatePath('/notebooks/[notebookId]')`, falls die Detailseite bereits Titel-Header cached).
+**(Eng-Review 2026-07-19, F8) Konvention `ActionResult<T>`:** Der gemeinsame Rückgabetyp
+`ActionResult<T> = { data: T } | { error: string }` wird in `lib/server/action.ts` definiert
+und von allen Actions dieser Spec **und** von Spec 02 verwendet, statt ihn pro Feature ad-hoc
+zu duplizieren. Die drei Actions oben werden entsprechend als `ActionResult<Notebook>` bzw.
+`ActionResult<{ success: true }>` typisiert. Bestehende Auth-Actions (`app/(auth)/actions.ts`)
+werden im Zuge dieses Builds (der sie wegen der Deutsch-Umstellung ohnehin anfasst, siehe §1)
+auf denselben Typ migriert.
+
+Alle drei rufen nach Erfolg `revalidatePath('/notebooks')` (und bei Update zusätzlich
+`revalidatePath('/notebooks/[notebookId]')`, falls die Detailseite bereits Titel-Header cached).
+**(Eng-Review 2026-07-19, OV10):** `revalidatePath` braucht bei dynamischen Segmenten das
+Typ-Argument, sonst matcht der literale Bracket-String keine reale URL und revalidiert nichts:
+`revalidatePath('/notebooks/[notebookId]', 'page')`. Alle Aufrufe in dieser Spec **und** in
+Spec 02 sind entsprechend mit dem zweiten Argument zu versehen.
 
 ## 9. Akzeptanzkriterien
 
@@ -201,7 +231,11 @@ Alle drei rufen nach Erfolg `revalidatePath('/notebooks')` (und bei Update zusä
 - [ ] AC-30: GIVEN ein existierendes, eigenes Notebook WHEN `/notebooks/[notebookId]` aufgerufen wird THEN zeigt die Seite den Notebook-Titel im Header sowie zwei leere Platzhalter-Panels „Sources" (links) und „Chat" (Mitte).
 - [ ] AC-31: GIVEN eine nicht existierende Notebook-ID WHEN `/notebooks/[notebookId]` aufgerufen wird THEN rendert Next.js die Standard-404-Seite (`notFound()`).
 - [ ] AC-32: GIVEN die Notebook-ID eines fremden Users WHEN der eingeloggte User `/notebooks/[notebookId]` aufruft THEN rendert Next.js dieselbe 404-Seite wie bei AC-31 (RLS liefert leeres Resultat, keine Existenz-Info-Leakage).
-- [ ] AC-33: GIVEN eine syntaktisch ungültige `notebookId` (kein UUID) WHEN die Route aufgerufen wird THEN rendert Next.js die 404-Seite (kein 500).
+- [ ] AC-33: GIVEN eine syntaktisch ungültige `notebookId` (kein UUID) WHEN die Route aufgerufen wird THEN rendert Next.js die 404-Seite (kein 500). **(Eng-Review 2026-07-19, OV9):** Konkret via zod-`.uuid()`-Guard vor dem Query (in `getById` bzw. am Page-Eingang) — ein malformed Input erzeugt `null` statt die Query auszuführen; ohne diesen Guard wirft PostgREST `invalid input syntax for type uuid`, was ohne Behandlung zu einem 500 statt 404 führen würde.
+
+### UI-Sprache (Deutsch)
+
+- [ ] AC-34: GIVEN Landing-, Login-, Signup-Seiten und App-Header WHEN gerendert THEN sind alle sichtbaren UI-Texte Deutsch (keine englischen Rest-Strings).
 
 ## 10. Definition of Done (Qualitäts-Gates)
 
@@ -215,7 +249,10 @@ Alle drei rufen nach Erfolg `revalidatePath('/notebooks')` (und bei Update zusä
 - [ ] DoD-Verify: `pnpm next build` → erfolgreich
 - [ ] DoD-Unit-Test: `lib/notebooks/service.ts` hat Unit-Tests für `create`, `list`, `getById`, `update`, `delete` — je Methode mindestens 1 Happy-Path- und 1 Error-Path-Test, gegen einen gestubbten/gemockten `SupabaseClient` (kein echter DB-Call)
 - [ ] DoD-Grep: `grep -rn "/dashboard"` im Repo (außerhalb `.git`/`node_modules`/`.next`) liefert keine Treffer mehr
-- [ ] DoD-QA: alle AC-1…AC-33 grün verifiziert (manuell oder via `/qa`)
+- [ ] DoD-Grep-Sprache: grep-artiger Check auf verbliebene englische UI-Strings in den umgestellten Seiten (Landing, Login, Signup, App-Header) — keine Treffer mehr
+- [ ] DoD-Convention (Eng-Review 2026-07-19, F8): `ActionResult<T>` ist in `lib/server/action.ts` definiert; `createNotebookAction`/`updateNotebookAction`/`deleteNotebookAction` sowie die bestehenden Auth-Actions (`app/(auth)/actions.ts`) nutzen diesen Typ statt lokaler Ad-hoc-Union-Types
+- [ ] DoD-E2E-Infra (Eng-Review 2026-07-19, F10): Playwright-Test-Infrastruktur gemäß neuem Abschnitt 13 „Test-Infrastruktur" steht (Config gegen lokales Supabase Port 54521, Auth-Fixture, DB-Reset-Strategie) und der Smoke-E2E (Login → Notebook anlegen → Detail) läuft grün
+- [ ] DoD-QA: alle AC-1…AC-34 grün verifiziert (manuell oder via `/qa`)
 
 ## 11. Risks & Open Questions
 
@@ -238,9 +275,52 @@ Alle drei rufen nach Erfolg `revalidatePath('/notebooks')` (und bei Update zusä
 10. **Test-Runner-Wahl** (vitest) ist eine Implementierungsempfehlung, kein hartes Spec-Requirement — falls das Build-Tooling eine andere Wahl trifft, bleibt DoD-Unit-Test trotzdem gültig (Happy+Error-Path je Service-Methode).
 11. **Delete-Confirm-Dialog** nutzt die bestehende `Dialog`-Komponente (nicht `AlertDialog`, da letztere aktuell nicht in `components/ui/` vorhanden ist) — konsistent mit der Projektregel „Dialog statt Sheet für Overlays".
 12. **Notebook-Card-Klickfläche**: die gesamte Card (außer Kebab-Menü-Bereich) ist als Link zur Detailseite klickbar, nicht nur ein separater „Öffnen"-Button — reduziert Klicks, ist aber nicht explizit im Brief spezifiziert.
+13. **Entschieden 2026-07-19: App-Sprache Deutsch (Andi).** Die gesamte bestehende UI (Landing, Login, Signup, App-Header, aktuell Englisch) wird im Zuge dieses Features auf Deutsch umgestellt (siehe §1, AC-34, DoD-Grep-Sprache).
 
 ---
 
-**Empfohlener nächster Schritt:** `/plan-eng-review specs/01-notebooks.md` (non-trivial: Service + Server-Action + UI + Routing-Migration), danach `/feature-builder` mit dieser Spec als Input, danach `/qa` gegen AC-1…AC-33.
+## 13. Test-Infrastruktur (Eng-Review 2026-07-19, F10)
 
-`Spec written: specs/01-notebooks.md — 33 acceptance criteria, 3 open questions (kein Blocker), next: /plan-eng-review`
+Playwright-E2E-Setup wird mit diesem Feature Scope von Spec 01 — die Specs 02 (Ingestion) und
+03 (Chat) referenzieren dieselbe Infrastruktur, statt sie jeweils neu aufzubauen. Aufbau nach
+den Patterns aus `.claude/skills/playwright-e2e/SKILL.md`:
+
+- **`playwright.config.ts`** gegen lokales Supabase (Port **54521**, projektspezifischer
+  lokaler Stack — nicht der Supabase-CLI-Default-Port), `testIdAttribute: 'data-test'`,
+  `baseURL` auf den lokalen Next.js-Dev-/Preview-Server.
+- **Auth-Fixture**: Ein Test-User wird vor dem Run über die Supabase-Admin-API
+  (service-role, `createAdminClient()`) angelegt/sichergestellt, meldet sich einmalig über
+  ein `setup`-Project an (`e2e/auth.setup.ts`) und persistiert den `storageState` unter
+  `e2e/.auth/user.json`; alle nachfolgenden Test-Projects laufen bereits eingeloggt.
+- **DB-Reset-Strategie pro Run**: vor jedem vollständigen Testlauf wird der lokale
+  Supabase-Stand auf einen definierten Ausgangszustand zurückgesetzt (z.B. via
+  `supabase db reset --local` oder ein äquivalentes Fixture-Truncate der User-eigenen
+  Notebooks/Sources/Messages vor dem `setup`-Project), damit Tests nicht auf Daten
+  vorheriger Runs aufbauen.
+- **1 Smoke-E2E**: Login → Notebook anlegen → Detailseite öffnen (`e2e/notebooks/notebooks.spec.ts`),
+  als Nachweis, dass die Infrastruktur end-to-end funktioniert; deckt keine Einzel-AC vollständig
+  ab, sondern verifiziert den Kritischer-Pfad/Happy-Path.
+
+Diese Infrastruktur ist DoD-Voraussetzung für Spec 01 (siehe DoD-E2E-Infra) und wird von Spec 02
+(Sources-Flows) und Spec 03 (Chat-/Guardrail-Flows, dort insbesondere für AC-H1 sowie das
+`evals/guardrail.eval.ts`-Script) wiederverwendet statt dupliziert.
+
+---
+
+**Empfohlener nächster Schritt:** `/plan-eng-review specs/01-notebooks.md` (non-trivial: Service + Server-Action + UI + Routing-Migration), danach `/feature-builder` mit dieser Spec als Input, danach `/qa` gegen AC-1…AC-34.
+
+`Spec written: specs/01-notebooks.md — 34 acceptance criteria, 3 open questions (kein Blocker), next: /plan-eng-review`
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 24 issues (12 section + 12 outside voice), 0 critical gaps, all folded into specs |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | pending (next step) |
+| Outside Voice | Claude subagent (opus) | Independent 2nd opinion | 1 | issues_found | 12 additive findings, no cross-model tension |
+
+- **CROSS-MODEL:** Outside voice (opus, fresh context) produced 12 additive findings, zero contradictions with the section review — both reviewers agree. Its #3 refined the chunker fix (relaxed token-count ACs), #12 extended the eval decision (H5 into eval). Biggest flagged residual risk: grounding gate rests on a single 0.35 similarity threshold that `text-embedding-3-small` may not separate cleanly — addressed via early calibration milestone + margin/relative-drop fallback (D15.6).
+- **VERDICT:** ENG CLEARED — 24 findings all resolved into the specs; scope accepted as-is then expanded by Product-Owner decision (async pgmq+pg_cron ingestion queue moved into v1). Ready to implement after `/plan-design-review`.
+
+NO UNRESOLVED DECISIONS
