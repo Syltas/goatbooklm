@@ -9,7 +9,8 @@ import {
   LoginPasswordSchema,
   SignupSchema,
 } from "@/lib/auth/schema"
-import { enhanceAction } from "@/lib/server/action"
+import { enhanceAction, type ActionResult } from "@/lib/server/action"
+import { toGermanErrorMessage } from "@/lib/server/error-messages"
 import { createClient } from "@/lib/supabase/server"
 
 // All four actions below are explicitly public (`auth: false`): a visitor
@@ -23,27 +24,19 @@ import { createClient } from "@/lib/supabase/server"
 // Service failures (bad credentials, expired OTP, etc.) are caught here and
 // returned as `{ error: string }` rather than thrown. Next.js redacts the
 // message of any Error thrown out of a Server Action in production, which
-// would turn "Invalid login credentials" into a generic, useless string —
-// returning it as plain data instead keeps the real message intact for the
-// client to render.
+// would turn "Invalid login credentials" into an opaque, useless string —
+// returning it as plain data instead lets us map it to a specific German
+// message for the client to render. The raw Supabase message is logged
+// server-side (`toGermanErrorMessage`) but never sent to the client as-is.
 
 function getActionErrorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "Something went wrong. Please try again."
+  return toGermanErrorMessage(error, "auth-action")
 }
 
-// Explicit discriminated result types so callers narrow with a plain
-// `"error" in result` check instead of relying on inference across the
-// try/catch + redirect control flow (which TS otherwise widens into an
-// all-optional shape, defeating narrowing).
-type ActionError = { error: string }
-export type SignUpActionResult =
-  | ActionError
-  | { needsEmailConfirmation: boolean }
+export type SignUpSuccess = { needsEmailConfirmation: boolean }
 
 export const signInWithPasswordAction = enhanceAction(
-  async (data): Promise<ActionError | undefined> => {
+  async (data): Promise<ActionResult<{ success: true }>> => {
     const client = await createClient()
     const service = createAuthService(client)
 
@@ -53,13 +46,13 @@ export const signInWithPasswordAction = enhanceAction(
       return { error: getActionErrorMessage(error) }
     }
 
-    redirect("/dashboard")
+    redirect("/notebooks")
   },
   { auth: false, schema: LoginPasswordSchema }
 )
 
 export const requestLoginOtpAction = enhanceAction(
-  async (data): Promise<ActionError | undefined> => {
+  async (data): Promise<ActionResult<{ sent: true }>> => {
     const client = await createClient()
     const service = createAuthService(client)
 
@@ -68,12 +61,14 @@ export const requestLoginOtpAction = enhanceAction(
     } catch (error) {
       return { error: getActionErrorMessage(error) }
     }
+
+    return { data: { sent: true } }
   },
   { auth: false, schema: LoginOtpRequestSchema }
 )
 
 export const verifyLoginOtpAction = enhanceAction(
-  async (data): Promise<ActionError | undefined> => {
+  async (data): Promise<ActionResult<{ success: true }>> => {
     const client = await createClient()
     const service = createAuthService(client)
 
@@ -83,13 +78,13 @@ export const verifyLoginOtpAction = enhanceAction(
       return { error: getActionErrorMessage(error) }
     }
 
-    redirect("/dashboard")
+    redirect("/notebooks")
   },
   { auth: false, schema: LoginOtpVerifySchema }
 )
 
 export const signUpAction = enhanceAction(
-  async (data): Promise<SignUpActionResult> => {
+  async (data): Promise<ActionResult<SignUpSuccess>> => {
     const client = await createClient()
     const service = createAuthService(client)
 
@@ -103,11 +98,13 @@ export const signUpAction = enhanceAction(
     if (result.session) {
       // Email confirmations are disabled on this project — signUp() already
       // returned a live session, so this is effectively a successful login.
-      redirect("/dashboard")
+      redirect("/notebooks")
     }
 
     return {
-      needsEmailConfirmation: !result.user?.email_confirmed_at,
+      data: {
+        needsEmailConfirmation: !result.user?.email_confirmed_at,
+      },
     }
   },
   { auth: false, schema: SignupSchema }

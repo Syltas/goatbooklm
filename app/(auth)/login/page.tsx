@@ -42,7 +42,7 @@ import {
 function getErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
-    : "Something went wrong. Please try again."
+    : "Etwas ist schiefgelaufen. Bitte versuche es erneut."
 }
 
 function PasswordLoginForm() {
@@ -62,7 +62,7 @@ function PasswordLoginForm() {
     startTransition(async () => {
       try {
         const result = await signInWithPasswordAction(data)
-        if (result?.error) {
+        if ("error" in result) {
           setError(result.error)
         }
       } catch (e) {
@@ -86,12 +86,12 @@ function PasswordLoginForm() {
           control={form.control}
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>E-Mail</FormLabel>
               <FormControl>
                 <Input
                   type="email"
                   autoComplete="email"
-                  placeholder="you@example.com"
+                  placeholder="du@beispiel.de"
                   data-test="login-password-email-input"
                   {...field}
                 />
@@ -106,7 +106,7 @@ function PasswordLoginForm() {
           control={form.control}
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>Passwort</FormLabel>
               <FormControl>
                 <Input
                   type="password"
@@ -127,7 +127,7 @@ function PasswordLoginForm() {
           disabled={pending}
           data-test="login-password-submit-button"
         >
-          {pending ? "Signing in…" : "Sign in"}
+          {pending ? "Anmeldung läuft…" : "Anmelden"}
         </Button>
       </form>
     </Form>
@@ -160,14 +160,14 @@ function OtpLoginForm() {
     startTransition(async () => {
       try {
         const result = await requestLoginOtpAction(data)
-        if (result?.error) {
+        if ("error" in result) {
           setError(result.error)
           return
         }
         setEmail(data.email)
         verifyForm.setValue("email", data.email)
         setStep("verify")
-        toast.success("Code sent — check your inbox")
+        toast.success("Code gesendet — prüfe dein Postfach")
       } catch (e) {
         unstable_rethrow(e)
         setError(getErrorMessage(e))
@@ -181,7 +181,7 @@ function OtpLoginForm() {
     startTransition(async () => {
       try {
         const result = await verifyLoginOtpAction(data)
-        if (result?.error) {
+        if ("error" in result) {
           setError(result.error)
         }
       } catch (e) {
@@ -209,12 +209,12 @@ function OtpLoginForm() {
             control={requestForm.control}
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Email</FormLabel>
+                <FormLabel>E-Mail</FormLabel>
                 <FormControl>
                   <Input
                     type="email"
                     autoComplete="email"
-                    placeholder="you@example.com"
+                    placeholder="du@beispiel.de"
                     data-test="login-otp-email-input"
                     {...field}
                   />
@@ -230,7 +230,7 @@ function OtpLoginForm() {
             disabled={pending}
             data-test="login-otp-request-button"
           >
-            {pending ? "Sending…" : "Send code"}
+            {pending ? "Wird gesendet…" : "Code senden"}
           </Button>
         </form>
       </Form>
@@ -247,8 +247,9 @@ function OtpLoginForm() {
         )}
 
         <p className="text-sm text-muted-foreground">
-          Enter the 6-digit code sent to{" "}
-          <span className="font-medium text-foreground">{email}</span>.
+          Gib den 6-stelligen Code ein, der an{" "}
+          <span className="font-medium text-foreground">{email}</span>{" "}
+          gesendet wurde.
         </p>
 
         <FormField
@@ -278,7 +279,7 @@ function OtpLoginForm() {
           disabled={pending}
           data-test="login-otp-verify-button"
         >
-          {pending ? "Verifying…" : "Verify code"}
+          {pending ? "Wird bestätigt…" : "Code bestätigen"}
         </Button>
 
         <Button
@@ -291,7 +292,7 @@ function OtpLoginForm() {
             setStep("request")
           }}
         >
-          Use a different email
+          Andere E-Mail verwenden
         </Button>
       </form>
     </Form>
@@ -303,19 +304,20 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center p-8">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Sign in</CardTitle>
+          <CardTitle>Anmelden</CardTitle>
           <CardDescription>
-            Sign in with your password or a one-time email code.
+            Melde dich mit deinem Passwort oder einem Einmal-Code per E-Mail
+            an.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="password">
             <TabsList className="mb-4 grid w-full grid-cols-2">
               <TabsTrigger value="password" data-test="login-tab-password">
-                Password
+                Passwort
               </TabsTrigger>
               <TabsTrigger value="otp" data-test="login-tab-otp">
-                Email code
+                E-Mail-Code
               </TabsTrigger>
             </TabsList>
             <TabsContent value="password">
@@ -327,13 +329,13 @@ export default function LoginPage() {
           </Tabs>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
+            Noch kein Konto?{" "}
             <Link
               href="/signup"
               className="text-primary underline-offset-4 hover:underline"
               data-test="login-signup-link"
             >
-              Sign up
+              Registrieren
             </Link>
           </p>
         </CardContent>

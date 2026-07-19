@@ -3,6 +3,15 @@ import type { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
 
+/**
+ * Shared discriminated result shape for server actions that return data on
+ * success. Defined once so every feature's actions — and the existing auth
+ * actions — share one convention instead of each declaring an ad-hoc union
+ * (Eng-Review 2026-07-19, F8, specs/01-notebooks.md). Callers narrow with
+ * `"error" in result`.
+ */
+export type ActionResult<T> = { data: T } | { error: string }
+
 interface ActionOptions<Schema extends z.ZodTypeAny> {
   /**
    * Require an authenticated user (default: true). Set to false only for

@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-figtree);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -49,30 +49,68 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* ---------------------------------------------------------------------
+   * GoatbookLM design tokens — verbindliche Source-of-Truth: DESIGN.md.
+   * Raw semantic values first; shadcn's own token names are mapped onto
+   * them below via var() indirection so there is exactly one palette, not
+   * two parallel worlds. `.dark` only needs to override the raw tokens in
+   * this block — every derived shadcn token picks the new value up
+   * automatically through the indirection.
+   * --------------------------------------------------------------------- */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f6f6f7;
+  --border: #e8e8ea;
+  --text: #1f1f1f;
+  --text-muted: #5f6368;
+  --primary: #1f1f1f;
+  --primary-fg: #ffffff;
+  /* Blau-Accent laut DESIGN.md — Links, aktive Source, Fokus-Ring,
+     Citation-Chip-Text. NICHT auf shadcns `--accent` mappen: shadcn nutzt
+     `--accent`/`--accent-foreground` als neutrale Hover-Fläche (Dropdown-
+     Menüs etc.), nicht als Aktionsfarbe — Namenskollision, siehe unten. */
+  --action: #2563eb;
+  --highlight: #fff3bf;
+  --danger: #d93025;
+  --ok: #188038;
+  --card-1: #fce8e6;
+  --card-2: #e8eaf6;
+  --card-3: #e6f4ea;
+  --card-4: #fef7e0;
+  --card-5: #f3e8fd;
+  --card-6: #e0f2f1;
+
+  /* shadcn tokens mapped onto the tokens above */
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary-foreground: var(--primary-fg);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  /* shadcn's own `--accent`/`--accent-foreground` are the neutral hover
+     surface for menus/lists (Radix DropdownMenu etc.), NOT the DESIGN.md
+     blue action color — map them to the neutral surface/text tokens
+     instead. Consumers that need the actual blue (links, active source,
+     focus ring, citation-chip text) use `--action` directly. */
+  --accent: var(--surface-2);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --input: var(--border);
+  /* Fokus-Ring in --action (DESIGN.md "Fokus-Ring", AC-46). */
+  --ring: var(--action);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  /* Baseline 8px (Buttons/Inputs laut DESIGN.md); Notebook-Karten/Dialog
+     nutzen explizite rounded-2xl/rounded-xl-Klassen für den 12–16px-Bereich. */
+  --radius: 0.5rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -84,24 +122,24 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --bg: #131314;
+  --surface: #1e1f20;
+  --surface-2: #28292a;
+  --border: #3c4043;
+  --text: #e8eaed;
+  --text-muted: #9aa0a6;
+  --primary: #e8eaed;
+  --primary-fg: #131314;
+  --action: #8ab4f8;
+  --highlight: #5c4b1a;
+  --danger: #f28b82;
+  --ok: #81c995;
+  --card-1: #3a2c2b;
+  --card-2: #2b2e43;
+  --card-3: #26382c;
+  --card-4: #3b3524;
+  --card-5: #33263e;
+  --card-6: #233a38;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

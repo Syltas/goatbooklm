@@ -32,7 +32,7 @@ import { SignupSchema } from "@/lib/auth/schema"
 function getErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
-    : "Something went wrong. Please try again."
+    : "Etwas ist schiefgelaufen. Bitte versuche es erneut."
 }
 
 export default function SignupPage() {
@@ -61,7 +61,7 @@ export default function SignupPage() {
           setError(result.error)
           return
         }
-        if (result.needsEmailConfirmation) {
+        if (result.data.needsEmailConfirmation) {
           setConfirmationNeeded(true)
         }
       } catch (e) {
@@ -75,24 +75,26 @@ export default function SignupPage() {
     <div className="flex min-h-screen items-center justify-center p-8">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Create an account</CardTitle>
-          <CardDescription>Sign up with an email and password.</CardDescription>
+          <CardTitle>Konto erstellen</CardTitle>
+          <CardDescription>
+            Registriere dich mit E-Mail-Adresse und Passwort.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {confirmationNeeded ? (
             <Alert data-test="signup-confirmation-alert">
               <AlertDescription>
-                We sent a confirmation link to your email. Click it to
-                activate your account. Once confirmed, you can also sign in
-                with an{" "}
+                Wir haben dir einen Bestätigungslink per E-Mail geschickt.
+                Klicke ihn an, um dein Konto zu aktivieren. Nach der
+                Bestätigung kannst du dich alternativ auch mit einem{" "}
                 <Link
                   href="/login"
                   className="underline underline-offset-4"
                   data-test="signup-confirmation-login-link"
                 >
-                  email code
+                  E-Mail-Code
                 </Link>{" "}
-                instead of a password.
+                statt mit Passwort anmelden.
               </AlertDescription>
             </Alert>
           ) : (
@@ -112,12 +114,12 @@ export default function SignupPage() {
                   control={form.control}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>E-Mail</FormLabel>
                       <FormControl>
                         <Input
                           type="email"
                           autoComplete="email"
-                          placeholder="you@example.com"
+                          placeholder="du@beispiel.de"
                           data-test="signup-email-input"
                           {...field}
                         />
@@ -132,7 +134,7 @@ export default function SignupPage() {
                   control={form.control}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel>Passwort</FormLabel>
                       <FormControl>
                         <Input
                           type="password"
@@ -152,7 +154,7 @@ export default function SignupPage() {
                   control={form.control}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Confirm password</FormLabel>
+                      <FormLabel>Passwort bestätigen</FormLabel>
                       <FormControl>
                         <Input
                           type="password"
@@ -173,20 +175,20 @@ export default function SignupPage() {
                   disabled={pending}
                   data-test="signup-submit-button"
                 >
-                  {pending ? "Creating account…" : "Sign up"}
+                  {pending ? "Konto wird erstellt…" : "Registrieren"}
                 </Button>
               </form>
             </Form>
           )}
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            Already have an account?{" "}
+            Schon ein Konto?{" "}
             <Link
               href="/login"
               className="text-primary underline-offset-4 hover:underline"
               data-test="signup-login-link"
             >
-              Sign in
+              Anmelden
             </Link>
           </p>
         </CardContent>

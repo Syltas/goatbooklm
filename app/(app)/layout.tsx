@@ -22,10 +22,10 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between border-b px-6 py-3">
+    <div className="flex h-dvh flex-col">
+      <header className="flex shrink-0 items-center justify-between border-b px-6 py-3">
         <Link
-          href="/dashboard"
+          href="/notebooks"
           className="font-semibold tracking-tight"
           data-test="app-header-home-link"
         >
@@ -50,12 +50,12 @@ export default async function AppLayout({
               size="sm"
               data-test="app-header-logout-button"
             >
-              Log out
+              Abmelden
             </Button>
           </form>
         </div>
       </header>
-      <main className="flex-1">{children}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
     </div>
   )
 }

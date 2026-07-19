@@ -21,7 +21,7 @@ function safeNextPath(next: string | null) {
     !/^\/[^/\\]/.test(next) ||
     /[\s\x00-\x1f]/.test(next)
   ) {
-    return "/dashboard"
+    return "/notebooks"
   }
   return next
 }
