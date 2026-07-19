@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache"
 
+import { createIngestionDeps } from "@/lib/ingestion/deps"
+import { createIngestionService } from "@/lib/ingestion/service"
 import { enhanceAction, type ActionResult } from "@/lib/server/action"
 import { toGermanErrorMessage } from "@/lib/server/error-messages"
 import { createClient } from "@/lib/supabase/server"
@@ -54,9 +56,25 @@ export const deleteNotebookAction = enhanceAction(
   async (data, user): Promise<ActionResult<{ success: true }>> => {
     const client = await createClient()
     const service = createNotebookService(client)
+    const ingestionService = createIngestionService(createIngestionDeps(client))
 
     try {
+      // Storage-Cleanup (Spec 02 §9/§14, Eng-Review L1): read the PDF
+      // storage_paths BEFORE the notebook row (and its cascaded `sources`
+      // rows) are deleted — the storage_path values are only readable while
+      // those rows still exist — but only actually delete the Storage
+      // objects AFTER the DB delete has succeeded. This ordering means a
+      // failure between the two steps can only ever leave a harmless
+      // orphaned Storage object (no row references it), never a `sources`
+      // row pointing at an already-deleted file. The Storage delete itself
+      // is best-effort (logs per-object failures internally, never throws),
+      // so it can't block the notebook deletion the user is waiting on.
+      const storagePaths = await ingestionService.getNotebookPdfStoragePaths({
+        notebookId: data.id,
+        userId: user.id,
+      })
       await service.delete(data.id, user.id)
+      await ingestionService.deleteStorageObjects(storagePaths)
       revalidatePath("/notebooks")
       revalidatePath("/notebooks/[notebookId]", "page")
       return { data: { success: true } }

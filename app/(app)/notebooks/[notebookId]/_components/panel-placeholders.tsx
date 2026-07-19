@@ -1,7 +1,9 @@
-// v1 placeholder bodies for the three detail panels. Specs 02 (Sources) and
-// 03 (Chat) replace `SourcesPanelBody`/`ChatPanelBody` with real content —
-// the shell's collapse/mobile-overlay plumbing does not change when they do.
-// Studio stays a placeholder in v1 by design (Non-Goal, AC-35/AC-37).
+// v1 placeholder bodies for the remaining detail panels. Spec 02 (Sources)
+// already replaced `SourcesPanelBody` with the real
+// `sources/_components/sources-panel.tsx`; Spec 03 (Chat) will do the same
+// for `ChatPanelBody` — the shell's collapse/mobile-overlay plumbing does
+// not change when it does. Studio stays a placeholder in v1 by design
+// (Non-Goal, AC-35/AC-37).
 
 import { Clapperboard } from "lucide-react"
 
@@ -12,14 +14,6 @@ export const PANEL_LABEL = {
 } as const
 
 export type PanelKey = keyof typeof PANEL_LABEL
-
-export function SourcesPanelBody() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-      <p>Deine Quellen erscheinen hier, sobald du welche hinzufügst.</p>
-    </div>
-  )
-}
 
 export function ChatPanelBody() {
   return (

@@ -166,3 +166,19 @@
     @apply font-sans;
   }
 }
+
+/* Reader-Mode citation-jump highlight pulse (DESIGN.md "Motion" #2,
+   specs/02-ingestion.md §16 AC-44) — a brief pulse over the `--highlight`
+   wash, then settles back to the element's static `bg-[var(--highlight)]`
+   class value. Only applied via Tailwind's `motion-safe:` variant, which
+   already gates on `prefers-reduced-motion: no-preference` — a
+   reduced-motion user gets the static highlight with no animation. */
+@keyframes source-highlight-pulse {
+  0%,
+  100% {
+    background-color: var(--highlight);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--highlight) 55%, transparent);
+  }
+}

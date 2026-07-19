@@ -85,6 +85,30 @@ export type Database = {
           },
         ]
       }
+      ingestion_worker_config: {
+        Row: {
+          created_at: string
+          id: boolean
+          secret: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: boolean
+          secret: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: boolean
+          secret?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           citations: Json
@@ -208,7 +232,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      delete_ingestion_job: { Args: { msg_id: number }; Returns: boolean }
+      enqueue_ingestion_job: { Args: { payload: Json }; Returns: number }
+      read_ingestion_jobs: {
+        Args: { p_qty?: number; p_vt?: number }
+        Returns: {
+          enqueued_at: string
+          message: Json
+          msg_id: number
+          read_ct: number
+          vt: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
