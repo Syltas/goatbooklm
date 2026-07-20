@@ -18,13 +18,17 @@
 
 Der Nutzer stellt im Notebook-Detail eine Frage in natürlicher Sprache. Das System
 beantwortet sie **nur** auf Basis der als `ready` markierten Quellen dieses Notebooks,
-belegt **jede Faktaussage** mit einem Inline-Zitat `[n]`, und macht Zitate klickbar:
-ein Klick öffnet **primär ein Popover** direkt am Zitat (Quellenname + zitierte Passage);
-erst ein Klick auf „Quelle anzeigen" im Popover öffnet die Quelle im Reader-Mode des
-Sources-Panels, scrollt zum zitierten Chunk und hebt ihn hervor. **(Design-Review
-2026-07-19, korrigiert):** ursprünglich „ein Klick öffnet die Quelle direkt" — siehe §7,
-umgeschrieben. Wenn die Quellen die Frage nicht abdecken, verweigert das System
-transparent statt zu halluzinieren.
+belegt **jede Faktaussage** mit einem Inline-Zitat `[n]`, und macht Zitate interaktiv:
+auf Desktop öffnet **Hover** über dem Chip eine Vorschau-Popover-Karte (Quellenname,
+Seite/Absatz-Locator, zitierte Passage, ggf. Bild-Miniatur bei Bild-Quellen), während ein
+**Klick den Reader direkt öffnet** — scrollt zum zitierten Chunk im Reader-Mode des
+Sources-Panels und hebt ihn hervor, ohne das Popover zu toggeln. Auf Touch/Mobile bleibt
+es bei Tap → Popover → „Quelle anzeigen" (kein Hover auf einem Touch-Gerät). **(Design-
+Review 2026-07-20, zweite Umkehrung):** dies ersetzt die Popover-first-Fassung vom
+2026-07-19 (Klick öffnete dort ausschließlich das Popover, ein zweiter Klick auf „Quelle
+anzeigen" öffnete die Quelle) — siehe §7 für die volle Historie beider Umkehrungen. Wenn
+die Quellen die Frage nicht abdecken, verweigert das System transparent statt zu
+halluzinieren.
 
 **(Design-Review 2026-07-19) Visuelles System:** siehe `DESIGN.md` (Figtree all-sans, weiß/minimal,
 schwarze Primary-Pills, ein blauer Accent, Pastell nur für Notebook-Karten, cardless Panels,
@@ -64,7 +68,7 @@ Persistenz) ist Standard-Handwerk drumherum.
   - `sources(..., content_text text, status check(pending|processing|ready|error))`, `notebooks(...)`.
 - **Code (existiert):** `enhanceAction` (`lib/server/action.ts`), Supabase-Clients (`lib/supabase/{server,client,admin}.ts`), Auth-Service als Referenz-Pattern für "pure Service, Client injiziert" (`lib/auth/service.ts`).
 - **Deps (installiert):** `ai@^7`, `@ai-sdk/anthropic@^4`, `@ai-sdk/openai@^4`, `zod@^4`, `radix-ui`, `sonner`, `lucide-react`.
-- **Fehlt / kommt aus Nachbar-Specs:** `match_chunks`-RPC, `app/api/chat/route.ts`, `lib/chat/*`, Chat-UI-Komponenten. Notebook-Detail-Route (`app/(app)/notebooks/[id]/page.tsx`) und Sources-Panel stammen aus den Sources-/Notebook-Specs (01/02) — dieses Feature **integriert** sich dort und definiert nur das Zitat-Popover + die Highlight-Bridge (Abschnitt 7, Popover-first — siehe Design-Review 2026-07-19). **(Eng-Review 2026-07-19, OV1; Design-Review 2026-07-19, präzisiert):** Der Quellen-Text-Viewer ist **explizit Scope von Spec 02** und dort der **Reader-Mode desselben linken Sources-Panels** (kein 3. Panel, siehe Spec 02 §16 „Quellen-Text-Viewer = Reader-Mode des Sources-Panels") — dieses Feature baut **keinen** eigenen Viewer/Stub, sondern konsumiert ihn ausschließlich über den Callback-Contract `onCite({ chunkId, sourceId })`, ausgelöst über „Quelle anzeigen" im Popover (Abschnitt 7). Siehe Annahme A-1 (aktualisiert).
+- **Fehlt / kommt aus Nachbar-Specs:** `match_chunks`-RPC, `app/api/chat/route.ts`, `lib/chat/*`, Chat-UI-Komponenten. Notebook-Detail-Route (`app/(app)/notebooks/[id]/page.tsx`) und Sources-Panel stammen aus den Sources-/Notebook-Specs (01/02) — dieses Feature **integriert** sich dort und definiert nur das Zitat-Popover + die Highlight-Bridge (Abschnitt 7 — Hover-Preview + Direktsprung, siehe Design-Review 2026-07-20). **(Eng-Review 2026-07-19, OV1; Design-Review 2026-07-19, präzisiert):** Der Quellen-Text-Viewer ist **explizit Scope von Spec 02** und dort der **Reader-Mode desselben linken Sources-Panels** (kein 3. Panel, siehe Spec 02 §16 „Quellen-Text-Viewer = Reader-Mode des Sources-Panels") — dieses Feature baut **keinen** eigenen Viewer/Stub, sondern konsumiert ihn ausschließlich über den Callback-Contract `onCite({ chunkId, sourceId, sourceTitle })`, ausgelöst über einen Chip-Klick (Desktop) bzw. „Quelle anzeigen" im Popover (Tastatur/Touch), siehe Abschnitt 7. Siehe Annahme A-1 (aktualisiert).
 
 ---
 
@@ -393,11 +397,13 @@ components/chat/chat-panel.tsx      # 'use client', useChat, hydratisiert aus in
                                      # sendet { notebookId, question } statt messages-Array (OV4)
 components/chat/message-list.tsx    # Liste, Auto-Scroll
 components/chat/message-item.tsx    # rendert content → Chips + Ungrounded-Badge + Fehlerzeile
-components/chat/citation-chip.tsx   # <button>, data-test, öffnet CitationPopover (nicht mehr
-                                     # direkter onCite-Call — siehe §7, Design-Review 2026-07-19)
-components/chat/citation-popover.tsx # (Design-Review 2026-07-19, NEU) Popover-Karte: Quellenname
-                                     # + zitierte Passage (chunk.content) + "Quelle anzeigen"-Link,
-                                     # der Link ruft onCite({chunkId, sourceId})
+components/chat/citation-chip.tsx   # <button>, data-test; Hover (Maus) öffnet CitationPopover,
+                                     # Klick (Maus) ruft onCite() direkt — siehe §7, Design-Review
+                                     # 2026-07-20 (zweite Umkehrung von Design-Review 2026-07-19)
+components/chat/citation-popover.tsx # Popover-Karte: Quellenname + Seite/Absatz-Locator + ggf.
+                                     # Bild-Miniatur (signierte URL) + zitierte Passage
+                                     # (chunk.content) + "Quelle anzeigen"-Link, der Link ruft
+                                     # onCite({chunkId, sourceId, sourceTitle}) — Tastatur-/Touch-Pfad
 components/chat/chat-input.tsx      # Textarea + Senden-Button, disabled bei 0 ready sources
 components/chat/citation-render.tsx # splittet Text an [n], mappt auf Chips (pure Render-Util)
 evals/guardrail.eval.ts             # (Eng-Review 2026-07-19, F11/OV12) NEU — feste Fixture-Quellen
@@ -415,9 +421,10 @@ der **Reader-Mode desselben linken Sources-Panels** (siehe Spec 02 §16, umgesch
 eigenständiges drittes Panel. Dieses Feature baut ihn **nicht** und legt auch **keinen**
 Stub/Platzhalter dafür an. Dieses Feature liefert ausschließlich die `ChatPanel`-Komponente
 (mittleres Panel) sowie das **Zitat-Popover** und die **Highlight-Bridge** (Abschnitt 7 —
-Popover-first, umgeschrieben), die den Spec-02-Reader-Mode über den Callback-Contract
-`onCite({ chunkId, sourceId })` anspricht (ausgelöst über „Quelle anzeigen" im Popover, nicht mehr
-direkt beim Chip-Klick). Ist Spec 02 zum Build-Zeitpunkt dieser Spec noch nicht umgesetzt, ist das
+Hover-Preview + Direktsprung, Design-Review 2026-07-20), die den Spec-02-Reader-Mode über den
+Callback-Contract `onCite({ chunkId, sourceId, sourceTitle })` anspricht — ausgelöst über einen
+Maus-Klick auf den Chip (Desktop, springt direkt) bzw. „Quelle anzeigen" im Popover (Tastatur/
+Touch). Ist Spec 02 zum Build-Zeitpunkt dieser Spec noch nicht umgesetzt, ist das
 eine Reihenfolge-Abhängigkeit des Builds, keine Scope-Frage dieser Spec (siehe Annahme A-1,
 aktualisiert).
 
@@ -479,37 +486,87 @@ chatten.") entspricht bereits DE-5 aus der Design-Review und bleibt unverändert
 
 ---
 
-## 7. Highlight-Bridge (Zitat → Quelle) — Popover-first (**umgeschrieben — Design-Review 2026-07-19**, ersetzt die bisherige „Chip-Klick öffnet Quelle direkt"-Fassung)
+## 7. Highlight-Bridge (Zitat → Quelle) — Hover-Preview + Direktsprung (**zweite Umkehrung — Design-Review 2026-07-20**, ersetzt die Popover-first-Fassung vom 2026-07-19)
 
-**Der primäre Einstiegspunkt eines Zitat-Klicks ist ein Popover, NICHT das direkte Öffnen der
-Quelle im Sources-Panel.** Das war die ursprüngliche Fassung dieses Abschnitts — sie wird
-hiermit ersetzt:
+**Historie, damit eine dritte Umkehrung nicht dieselbe Debatte von vorn führt:** Diese Spec
+begann mit „Chip-Klick öffnet die Quelle direkt". Design-Review 2026-07-19 ersetzte das durch
+„Popover-first" (Klick → Popover → erst „Quelle anzeigen" öffnet die Quelle). **Diese erste
+Umkehrung hatte keine dokumentierte Usability-Begründung** — sie setzte sich im Review gegen eine
+vorgeschlagene Right-Panel-Highlight-Spalte durch, nicht gegen den Chip-Direktsprung, und die
+festgehaltene Begründung war Referenz-Treue zu den vom Nutzer bereitgestellten
+NotebookLM-Screenshots (nicht ein Usability-Befund gegen den Direktsprung selbst). Design-Review
+2026-07-20 (dieser Abschnitt, zweite Umkehrung) geht für Desktop zurück zum Direktsprung — aus
+einem konkreten technischen Befund: der Chip trägt eine 44×44px-Touch-Zielfläche
+(`after:-inset-3.5`, AC-51), die Chat-Zeilenhöhe beträgt aber nur 27,2px, sodass die Zielfläche
+8–10px in die Nachbarzeilen hineinragt. Ein an diese Fläche gebundenes Hover-Popover öffnete sich
+beim bloßen Vorbeistreichen über Fließtext — ein Geometrie-Bug, kein Timing-Problem. Die Lösung
+bindet Hover stattdessen an die sichtbaren 16×16px (nicht an die 44×44px-Fläche), was ein
+Hover-Preview sicher genug macht, um es NEBEN einem Direktsprung anzubieten, statt Hover ganz zu
+meiden.
 
-1. Klick (oder Tastatur: Enter/Space) auf Chip `[n]` öffnet eine **Popover-Karte**
-   (`data-test="citation-popover"`) direkt am Zitat, mit:
+**Ab jetzt gilt:**
+
+1. **Hover** (Desktop, Maus) über dem sichtbaren Chip `[n]` — den echten 16×16px, NICHT die
+   44×44px-Touch-Halo — öffnet nach 350ms eine **Popover-Karte** (`data-test="citation-popover"`)
+   direkt am Zitat, mit:
    - Quellenname (klein, fett).
+   - Locator-Zeile „Seite X · Absatz Y" (`data-test="citation-popover-locator"`), feldweise
+     degradiert: Quellen ohne Seiteninfo (Web/Text/Notiz — kein `page` in `chunks.metadata`)
+     zeigen nur „Absatz Y", nie „Seite undefined".
+   - Bild-Miniatur (`data-test="citation-popover-image"`) über der Passage, nur bei
+     Bild-Quellen (`sources.type = 'image'`), geladen über eine **signierte** URL
+     (`getSourceImageUrlAction`, Owner-geprüft — kein öffentlicher Bucket-Zugriff).
    - Zitierte Passage — der Chunk-`content` (2–4 Zeilen, ggf. mit Ellipsis).
    - Link „Quelle anzeigen" (`data-test="citation-popover-open-source"`, `--accent`-Blau laut
      DESIGN.md).
-   - Das Popover schließt bei Klick daneben, bei erneutem Chip-Klick/-Tastendruck, oder bei `Esc`.
-2. Klick/Enter auf „Quelle anzeigen" ruft `onCite({ chunkId, sourceId })`. Handler (im
-   Notebook-Detail, geteilt mit Sources-Panel via Context/Callback):
+   - Verlässt der Zeiger sowohl Chip als auch Karte, schließt sie nach 200ms Nachlauf (Zeit, um
+     in die Karte zu wandern); Hovern über der Karte selbst hält sie offen.
+   - **Während eine Assistant-Message noch streamt, öffnet Hover auf ihren Chips nicht** —
+     `CitationRender` rendert unbedingt, Chips einer streamenden Message fließen also um, und
+     eine daran verankerte Karte würde springen oder sich lösen.
+2. **Klick** (echte Maus) auf den Chip springt **direkt** in den Reader-Mode — er öffnet/toggelt
+   das Popover nicht (ersetzt die alte „Klick öffnet Popover"-Regel für die Maus). Handler
+   (`onCite({ chunkId, sourceId, sourceTitle })`, im Notebook-Detail, geteilt mit Sources-Panel
+   via Context/Callback):
    a. Wechselt das Sources-Panel (linkes Panel) in den **Reader-Mode** der Quelle `sourceId`
       (siehe Spec 02 §16 — der Viewer ist der Reader-Mode desselben linken Panels, **kein**
-      drittes/eigenständiges Panel).
-   b. Ermittelt `char_start`/`char_end` des Chunks aus `chunks.metadata` (über `chunkId`;
-      entweder aus bereits geladenen Source-Chunks oder per schlankem
-      `select metadata from chunks where id=…` unter RLS).
+      drittes/eigenständiges Panel), und schließt ein ggf. offenes Popover.
+   b. Ermittelt `char_start`/`char_end` des Chunks — bereits Teil des im Popover mitgelieferten
+      `CitationDetail` (kein zusätzlicher Request beim Sprung nötig).
    c. Scrollt zum Offset und rendert ein `<mark>`-Highlight (`--highlight`-Wash, kurzer Puls
       laut DESIGN.md, respektiert `prefers-reduced-motion` — dann instant ohne Puls) über
       `content_text.slice(char_start, char_end)`.
+   d. Kündigt den Panel-Wechsel per Live-Region an ("Reader-Mode geöffnet: {Quellenname}") — der
+      Klick bewegt den Tastatur-Fokus nicht aus dem Chat heraus, ein Screenreader-Nutzer bekäme
+      sonst kein Signal für den Panel-Wechsel.
 3. **v1 = Text-Ansicht**, kein PDF-Seiten-Rendering. Falls `char_start/char_end` fehlen
-   (Alt-Chunk) → Reader-Mode öffnet ohne Scroll/Highlight (graceful degrade).
+   (Alt-Chunk oder eine Quelle ohne Char-Offsets) → Reader-Mode öffnet ohne Scroll/Highlight
+   (graceful degrade, AC-G4) — **gilt jetzt für BEIDE Pfade** (Direktsprung und „Quelle
+   anzeigen"), nicht mehr nur für Letzteren wie in der 2026-07-19-Fassung.
+4. **Tastatur** (Enter/Space auf dem Chip) öffnet weiterhin das Popover — unverändert AC-47 —
+   und fokussiert darin automatisch „Quelle anzeigen" (Radix' Default-Focus-in bei einer
+   Aktivierung, nicht bei Hover), sodass ein zweites Enter springt. Zwei Anschläge, beide auf
+   beschrifteten, fokussierbaren Elementen.
+5. **Touch/Mobile bleibt exakt wie heute** (keine Verhaltensänderung): Tap öffnet das Popover
+   (kein Hover auf einem Touch-Gerät, kein unsichtbarer Zwei-Tap-Modus), „Quelle anzeigen" öffnet
+   den Reader als Vollbild-Overlay (§14). Die Desktop/Mobile-Divergenz ist bewusst — Hover
+   existiert nur auf einem der beiden Gerätetypen, nicht durch einen unsichtbaren Modus; keine
+   Funktion ist ausschließlich per Hover erreichbar (§14).
+6. **„Quelle anzeigen" bleibt auf jedem Viewport bestehen** — Tastatur-Pfad, Screenreader-Pfad,
+   Touch-Pfad und E2E-Anker (kürzlich gehärtet, QA ISSUE-002). Es wird durch den Direktsprung
+   nicht ersetzt, nur um den Desktop-Maus-Pfad ergänzt.
+7. **Zurück-Pfad (Vorbedingung, vor dem Direktsprung gebaut):** `SourceReaderContext` merkt sich
+   einen einzelnen „vorherigen Zustand" (Quelle + Offsets + Scroll-Position, kein unbegrenzter
+   Stack). Ein Fehlklick auf den 16px-Chip verwirft die vorher offene Quelle nicht mehr — die
+   Zurück-Affordanz (`source-reader-back`) stellt zuerst die vorherige Quelle samt
+   Scroll-Position wieder her, bevor sie (bei einem zweiten „Zurück" bzw. wenn es keinen
+   vorherigen Zustand gibt) zur Liste zurückkehrt.
 
-**Was sich geändert hat:** vorher „Chip-Klick → Quelle öffnet direkt", jetzt „Chip-Klick →
-Popover → optional 'Quelle anzeigen' → Quelle öffnet im Reader-Mode". Der eigentliche
-Scroll-/Highlight-Mechanismus (Schritt 2b/2c) ist inhaltlich identisch zur ursprünglichen
-Fassung — nur der Einstieg ist jetzt zweistufig.
+**Was sich (nochmal) geändert hat:** Popover-first (2026-07-19) galt für Klick UND Tastatur UND
+Touch gleichermaßen. Ab 2026-07-20 gilt „Popover" nur noch für Hover (Desktop), Tastatur und
+Touch — der Maus-Klick springt direkt. Der Scroll-/Highlight-Mechanismus selbst (Schritt 2b/2c)
+ist unverändert; nur der Desktop-Einstieg ist wieder einstufig (mit Hover-Vorschau daneben statt
+davor).
 
 ---
 
@@ -598,10 +655,10 @@ Alle Nutzer-Texte sind zentrale Konstanten (Deutsch); Fehler zusätzlich via `so
 
 ### G — Highlight-Bridge
 
-- [ ] AC-G1 (**umgeschrieben — Design-Review 2026-07-19**): GIVEN eine Assistant-Message mit Chip `[n]` WHEN der Nutzer ihn klickt (oder per Tastatur Enter/Space aktiviert) THEN öffnet sich PRIMÄR eine Popover-Karte (`data-test="citation-popover"`) mit Quellenname, zitierter Passage und „Quelle anzeigen"-Link — das Sources-Panel öffnet die Quelle NICHT direkt beim Chip-Klick (ursprüngliche Formulierung „öffnet das Sources-Panel die Quelle" ist ersetzt, siehe §7).
-- [ ] AC-G2 (**umgeschrieben — Design-Review 2026-07-19**): GIVEN das Zitat-Popover ist offen WHEN der Nutzer auf „Quelle anzeigen" klickt (`data-test="citation-popover-open-source"`, auch per Tastatur aktivierbar) THEN wechselt das Sources-Panel in den Reader-Mode der Quelle, scrollt zum Chunk und hebt `content_text[char_start..char_end]` per `<mark>` hervor.
+- [ ] AC-G1 (**umgeschrieben — Design-Review 2026-07-20, zweite Umkehrung**): GIVEN eine Assistant-Message mit Chip `[n]` (nicht mehr streamend) WHEN der Nutzer mit der Maus über den sichtbaren Chip hovert THEN öffnet sich nach 350ms eine Popover-Karte (`data-test="citation-popover"`) mit Quellenname, Locator-Zeile, zitierter Passage und „Quelle anzeigen"-Link; WHEN derselbe Nutzer stattdessen mit der Maus auf den Chip KLICKT THEN springt der Reader-Mode direkt zur Quelle, ohne das Popover zu öffnen/toggeln (ersetzt die 2026-07-19-Fassung, in der jede Chip-Aktivierung — auch Klick — primär das Popover öffnete, siehe §7).
+- [ ] AC-G2 (**umgeschrieben — Design-Review 2026-07-20**): GIVEN das Zitat-Popover ist offen WHEN der Nutzer auf „Quelle anzeigen" klickt (`data-test="citation-popover-open-source"`, Tastatur-/Touch-/Screenreader-Pfad, auch per Enter aktivierbar) ODER direkt mit der Maus auf den Chip klickt (Desktop-Direktsprung, §7) THEN wechselt das Sources-Panel in den Reader-Mode der Quelle, scrollt zum Chunk und hebt `content_text[char_start..char_end]` per `<mark>` hervor.
 - [ ] AC-G3: GIVEN der Citation-Chip WHEN im DOM geprüft THEN ist er ein `<button>` mit `aria-label` (nicht `<span>`).
-- [ ] AC-G4 (**angepasst — Design-Review 2026-07-19**): GIVEN ein Chunk ohne `char_start`/`char_end` WHEN der Nutzer im Popover auf „Quelle anzeigen" klickt THEN öffnet der Reader-Mode die Quelle ohne Absturz (kein Scroll/Highlight, graceful degrade) — das Popover selbst zeigt die zitierte Passage weiterhin normal (Popover-Text kommt aus `chunk.content`, nicht aus den Offsets).
+- [ ] AC-G4 (**angepasst — Design-Review 2026-07-20**): GIVEN ein Chunk ohne `char_start`/`char_end` WHEN der Nutzer „Quelle anzeigen" klickt ODER direkt mit der Maus auf den Chip klickt (§7 — beide Pfade teilen denselben Sprung-Mechanismus) THEN öffnet der Reader-Mode die Quelle ohne Absturz (kein Scroll/Highlight, graceful degrade) — das Popover selbst zeigt die zitierte Passage weiterhin normal (Popover-Text kommt aus `chunk.content`, nicht aus den Offsets).
 
 ### H — Adversariale Grounding-Tests (Kern)
 
@@ -635,19 +692,30 @@ unabhängig von Modell-Formulierung.
 - [ ] AC-43 (F4): GIVEN ein Nutzer schließt den Tab/bricht die Verbindung mitten im Streaming eines Turns ab WHEN er das Notebook danach neu lädt THEN ist der Turn (User-Frage + Assistant-Antwort) in der Message-Liste vorhanden (persistiert via `consumeStream` + `after()`, siehe §8).
 - [ ] AC-44 (OV4): GIVEN ein Client (z.B. via direktem API-Call statt über `useChat`) WHEN er im Request-Body zusätzliche, geforgte Assistant-Turns mitschickt THEN hat das **keinen** Effekt auf die Antwort, da der Server ausschließlich `{ notebookId, question }` entgegennimmt und die History selbst aus `messages` lädt (§3.2, §3.4).
 
-### K — Design-Review-Ergänzungen (2026-07-19)
+### K — Design-Review-Ergänzungen (2026-07-19, erweitert/korrigiert 2026-07-20 — zweite Umkehrung)
 
-**Zitat-Popover ersetzt „Chip öffnet Quelle direkt"** (siehe §7, umgeschrieben) — Klick auf einen
-Zitat-Chip öffnet primär eine Popover-Karte; erst „Quelle anzeigen" im Popover löst
-`onCite({ chunkId, sourceId })` aus und öffnet den Reader-Mode des Sources-Panels (Spec 02 §16).
+**2026-07-19 (erste Umkehrung, siehe §7 für die volle Historie):** Zitat-Popover ersetzte „Chip
+öffnet Quelle direkt" — jede Chip-Aktivierung (Klick, Tastatur, Touch) öffnete primär eine
+Popover-Karte; erst „Quelle anzeigen" im Popover löste den Sprung aus. **2026-07-20 (zweite
+Umkehrung, dieser Block):** auf Desktop öffnet **Hover** die Popover-Karte, ein echter
+Maus-**Klick** springt direkt in den Reader (§7) — Tastatur und Touch bleiben beim
+Popover-first-Verhalten von 2026-07-19 unverändert. AC-45/46/47/51 unten sind entsprechend
+angepasst; AC-52–AC-57 sind neu (Locator, Bild-Miniatur, Hover-Bindung, Streaming-Hover-Sperre,
+Zurück-Pfad, Live-Region).
 
-- [ ] AC-45: GIVEN eine Assistant-Message mit Chip `[n]` WHEN der Nutzer den Chip klickt oder per Tastatur (Enter/Space) aktiviert THEN öffnet sich das Zitat-Popover (`data-test="citation-popover"`) mit Quellenname, zitierter Passage (`chunk.content`) und „Quelle anzeigen"-Link — die Quelle selbst öffnet sich NICHT automatisch.
-- [ ] AC-46: GIVEN das Zitat-Popover ist offen WHEN der Nutzer außerhalb klickt, den Chip erneut aktiviert, oder `Esc` drückt THEN schließt sich das Popover.
-- [ ] AC-47 (A11y): GIVEN das Zitat-Popover WHEN es sich öffnet THEN wandert der Tastatur-Fokus ins Popover; WHEN es sich schließt (Esc oder Klick daneben) THEN kehrt der Fokus zum auslösenden Chip zurück (Focus-Return).
+- [ ] AC-45 (**umgeschrieben — Design-Review 2026-07-20**): GIVEN eine Assistant-Message mit Chip `[n]` (nicht mehr streamend) WHEN der Nutzer mit der Maus über den sichtbaren Chip hovert THEN öffnet sich nach 350ms das Zitat-Popover (`data-test="citation-popover"`) mit Quellenname, Locator, zitierter Passage (`chunk.content`) und „Quelle anzeigen"-Link; WHEN der Nutzer per Tastatur (Enter/Space) aktiviert oder auf Touch tippt THEN öffnet sich dasselbe Popover — die Quelle selbst öffnet sich in keinem der drei Fälle automatisch.
+- [ ] AC-46 (**umgeschrieben — Design-Review 2026-07-20, vorherige Fassung „schließt bei erneuter Chip-Aktivierung" ist falsch geworden**): GIVEN das Zitat-Popover ist offen WHEN der Nutzer außerhalb klickt, `Esc` drückt, oder der Zeiger Chip UND Karte für 200ms verlässt (Hover-Fall) THEN schließt sich das Popover. Ein echter Maus-Klick auf den Chip selbst TOGGELT das Popover nicht mehr (er springt stattdessen direkt, §7/AC-G1) — die alte Formulierung „schließt bei erneuter Chip-Aktivierung" gilt nur noch für Tastatur/Touch, nicht mehr für die Maus.
+- [ ] AC-47 (A11y, **Geltungsbereich präzisiert — Design-Review 2026-07-20**): GIVEN das Zitat-Popover WHEN es per Tastatur-Aktivierung oder Touch-Tap geöffnet wird THEN wandert der Tastatur-Fokus ins Popover (auf „Quelle anzeigen"); WHEN es sich schließt (Esc oder Klick daneben) THEN kehrt der Fokus zum auslösenden Chip zurück (Focus-Return). GIVEN das Popover stattdessen per Maus-Hover öffnet THEN wandert der Fokus NICHT hinein und kehrt beim Schließen auch nicht zurück — eine bloße Mausbewegung darf niemals Tastatur-Fokus verschieben, der Nutzer könnte gerade im Chat-Input tippen.
 - [ ] AC-48 (A11y): GIVEN `prefers-reduced-motion: reduce` ist aktiv WHEN ein Zitat-Sprung zum Reader-Mode passiert THEN entfällt der Highlight-Puls und der Scroll erfolgt instant (kein smooth-scroll); Streaming-Text erscheint ohne künstliche zusätzliche Delays.
 - [ ] AC-49 (A11y): GIVEN Chat-Panel-Body-Text und Fokus-Ring WHEN geprüft THEN erreicht der Body-Text einen Kontrast ≥4.5:1 gegen den Hintergrund, und jedes fokussierbare Element (Chip, Popover-Link, Chat-Input, Senden-Button) zeigt einen sichtbaren Fokus-Ring in `--accent` (Blau laut DESIGN.md).
 - [ ] AC-50 (Empty-States): GIVEN ein Notebook mit ≥1 `ready`-Quelle und 0 Messages WHEN das Chat-Panel lädt THEN zeigt es Vorschlags-Fragen-Chips (`data-test="chat-suggested-question-chip"`) statt leerem Raum; Klick auf einen Chip füllt den Chat-Input, sendet aber nicht automatisch.
-- [ ] AC-51 (Responsive, siehe §14): GIVEN Viewport ≤768px WHEN der Nutzer im Zitat-Popover „Quelle anzeigen" klickt THEN öffnet sich der Reader-Mode als Vollbild-Overlay mit Zurück-Pfeil (`data-test="source-reader-back"`), Focus-Trap aktiv, 44×44px Touch-Targets für Chip/Popover-Link/Zurück-Pfeil.
+- [ ] AC-51 (Responsive, siehe §14, **präzisiert — Design-Review 2026-07-20**): GIVEN Viewport ≤768px (Touch, kein Hover) WHEN der Nutzer im Zitat-Popover „Quelle anzeigen" klickt THEN öffnet sich der Reader-Mode als Vollbild-Overlay mit Zurück-Pfeil (`data-test="source-reader-back"`), Focus-Trap aktiv, 44×44px Touch-Targets für Chip/Popover-Link/Zurück-Pfeil. Die 44×44px-Zielfläche ist ausschließlich Klick-/Touch-Ziel — sie löst auf einem Hover-fähigen Gerät (Desktop) kein Hover-Popover aus (siehe AC-52).
+- [ ] AC-52 (NEU — Design-Review 2026-07-20): GIVEN ein Citation-Chip WHEN der Mauszeiger die 44×44px-Touch-Zielfläche (`after:-inset-3.5`), aber NICHT die sichtbaren 16×16px des Chips selbst berührt (z.B. Fließtext eine Zeile darüber/darunter) THEN öffnet sich das Popover nicht — Hover ist ausschließlich an die sichtbare Chip-Fläche gebunden, nicht an die Touch-Zielfläche.
+- [ ] AC-53 (NEU — Design-Review 2026-07-20): GIVEN ein Zitat aus einer Quelle mit Seiteninformation (PDF) WHEN das Popover öffnet THEN zeigt es eine Locator-Zeile „Seite X · Absatz Y" (`data-test="citation-popover-locator"`); GIVEN ein Zitat aus einer Quelle ohne Seiteninformation (Web/Text/Notiz) THEN zeigt die Locator-Zeile nur „Absatz Y", niemals „Seite undefined".
+- [ ] AC-54 (NEU — Design-Review 2026-07-20): GIVEN ein Zitat aus einer Bild-Quelle (`sources.type = 'image'`) WHEN das Popover öffnet THEN zeigt es eine Bild-Miniatur (`data-test="citation-popover-image"`) über der zitierten Passage, geladen über eine signierte, Owner-geprüfte URL (`getSourceImageUrlAction`) — nie über eine öffentliche URL.
+- [ ] AC-55 (NEU — Design-Review 2026-07-20): GIVEN eine Assistant-Message streamt noch (`isStreaming`) WHEN der Nutzer über einen ihrer Citation-Chips hovert THEN öffnet sich kein Popover — Klick/Tastatur/Touch bleiben unverändert funktionsfähig.
+- [ ] AC-56 (NEU — Design-Review 2026-07-20, Zurück-Pfad): GIVEN der Reader zeigt Quelle A an einer bestimmten Scroll-Position WHEN der Nutzer per Chip-Klick zu Quelle B springt und danach auf `source-reader-back` klickt THEN zeigt der Reader wieder Quelle A, gescrollt an dieselbe Position wie vor dem Sprung — nicht die Quellenliste. Ein zweiter Klick auf `source-reader-back` (oder der erste, wenn es keine vorherige Quelle gab) kehrt zur Liste zurück.
+- [ ] AC-57 (NEU — Design-Review 2026-07-20, Live-Region): GIVEN ein Citation-Chip-Klick (Desktop-Direktsprung) WHEN der Reader-Mode dadurch die Quelle wechselt THEN kündigt eine `aria-live="polite"`-Region „Reader-Mode geöffnet: {Quellenname}" an, ohne den Tastatur-Fokus zu verschieben.
 
 ---
 
@@ -660,9 +728,10 @@ Zitat-Chip öffnet primär eine Popover-Karte; erst „Quelle anzeigen" im Popov
 - [ ] DoD-Test (Eng-Review 2026-07-19, F11/OV12, korrigiert; **Design-Review 2026-07-19, erweitert**): `data-test` auf jedem interaktiven Element (inkl. `citation-popover`, `citation-popover-open-source`, `chat-suggested-question-chip`, `source-reader-back`); Citation-Chip ist `<button>`; E2E-Suite deckt **nur AC-H1** ab (deterministisch, netzwerk-prüfbar); AC-H2/H3/H4/H5/H6 sind über `evals/guardrail.eval.ts` abgedeckt (on-demand + vor Releases, nicht Teil der Standard-E2E-Suite).
 - [ ] DoD-Nav/Routing (Eng-Review 2026-07-19, F3, korrigiert): `app/api/chat/route.ts` mit `maxDuration=120`, `runtime='nodejs'`; `ChatPanel` im Notebook-Detail eingebunden.
 - [ ] DoD-Modell-Slug (Eng-Review 2026-07-19, OV12, NEU): `anthropic('claude-sonnet-5')` wird vor dem Build gegen einen real deploybaren Modell-Slug verifiziert (Anthropic-API-Dokumentation bzw. Testcall) — kein Annahme-Slug ungeprüft in Produktion.
-- [ ] DoD-Design (Design-Review 2026-07-19): ChatPanel + Zitat-Popover + Reader-Übergang folgen `DESIGN.md` (Figtree, dezente Inline-Zitat-Chips in `--text-muted`/`--accent`, Popover mit Schatten laut DESIGN.md „Schatten nur für Overlays", `--highlight`-Wash beim Reader-Sprung).
-- [ ] DoD-A11y (Design-Review 2026-07-19): Zitat-Popover per Tastatur öffen-/schließbar mit Focus-Return (AC-47); `prefers-reduced-motion` respektiert (AC-48); Kontrast ≥4.5:1 + sichtbarer Fokus-Ring (AC-49).
-- [ ] DoD-Responsive (Design-Review 2026-07-19): Mobile-Verhalten aus §14 verifiziert (Vollbild-Reader-Overlay, Touch-Targets, Focus-Trap, siehe AC-51).
+- [ ] DoD-Design (Design-Review 2026-07-19, **Hover/Klick-Verhalten + Locator + Bild-Miniatur ergänzt 2026-07-20**): ChatPanel + Zitat-Popover + Reader-Übergang folgen `DESIGN.md` (Figtree, dezente Inline-Zitat-Chips in `--text-muted`/`--accent`, Popover mit Schatten laut DESIGN.md „Schatten nur für Overlays", `--highlight`-Wash beim Reader-Sprung); Popover zeigt Locator-Zeile (AC-53) und ggf. Bild-Miniatur (AC-54); Desktop-Hover öffnet das Popover, Desktop-Klick springt direkt (§7, AC-45/AC-G1).
+- [ ] DoD-A11y (Design-Review 2026-07-19, **Geltungsbereich korrigiert 2026-07-20**): Zitat-Popover per Tastatur öffen-/schließbar mit Focus-Return NUR für Tastatur-/Touch-Aktivierung, nicht für Hover (AC-47); Hover ist an die sichtbaren 16×16px des Chips gebunden, nicht an dessen 44×44px-Touch-Zielfläche (AC-52); ein Reader-Sprung kündigt sich per Live-Region an, ohne Fokus zu verschieben (AC-57); `prefers-reduced-motion` respektiert (AC-48); Kontrast ≥4.5:1 + sichtbarer Fokus-Ring (AC-49).
+- [ ] DoD-Responsive (Design-Review 2026-07-19, **präzisiert 2026-07-20**): Mobile-Verhalten aus §14 verifiziert (Vollbild-Reader-Overlay, Touch-Targets, Focus-Trap, siehe AC-51) — unverändert gegenüber 2026-07-19; die Desktop/Mobile-Divergenz (Hover öffnet/Klick springt vs. Tap öffnet Popover) ist bewusst, siehe §7 Punkt 5.
+- [ ] DoD-Reader-Back (NEU — Design-Review 2026-07-20): `SourceReaderContext` restauriert Quelle + Scroll-Position eines einzelnen vorherigen Zustands via `goBack()` (AC-56), gebaut VOR dem Direktsprung (§7 Vorbedingung).
 - [ ] DoD-Verify: `pnpm tsc --noEmit` grün; `pnpm next lint` grün; `pnpm next build` grün.
 - [ ] DoD-QA: alle ACs aus Abschnitt 10 (inkl. Gruppe K) via `/qa` grün.
 
@@ -670,7 +739,7 @@ Zitat-Chip öffnet primär eine Popover-Karte; erst „Quelle anzeigen" im Popov
 
 ## 12. Annahmen (für Review)
 
-- **A-1 (Nachbar-Specs) (Eng-Review 2026-07-19, OV1, korrigiert; Design-Review 2026-07-19, präzisiert):** Notebook-Detail-Route (`app/(app)/notebooks/[id]/page.tsx`, 3-Panel-Layout Sources|Chat|Studio) und Sources-Panel entstehen in Spec 01/02. Der **Quellen-Text-Viewer ist explizit Scope von Spec 02** und dort der **Reader-Mode desselben linken Sources-Panels**, kein eigenständiges drittes Panel (siehe Spec 02 §16) — dieses Feature liefert nur `ChatPanel` + Zitat-Popover + Highlight-Bridge (Popover-first, §7) und baut **keinen** eigenen Viewer-Stub mehr (Stub-Formulierung entfernt). Reihenfolge-Abhängigkeit (Spec 02 vor 03 im Build) ist eine Build-Reihenfolge-Frage, keine Scope-Unschärfe mehr.
+- **A-1 (Nachbar-Specs) (Eng-Review 2026-07-19, OV1, korrigiert; Design-Review 2026-07-19, präzisiert):** Notebook-Detail-Route (`app/(app)/notebooks/[id]/page.tsx`, 3-Panel-Layout Sources|Chat|Studio) und Sources-Panel entstehen in Spec 01/02. Der **Quellen-Text-Viewer ist explizit Scope von Spec 02** und dort der **Reader-Mode desselben linken Sources-Panels**, kein eigenständiges drittes Panel (siehe Spec 02 §16) — dieses Feature liefert nur `ChatPanel` + Zitat-Popover + Highlight-Bridge (Hover-Preview + Direktsprung, §7, Design-Review 2026-07-20) und baut **keinen** eigenen Viewer-Stub mehr (Stub-Formulierung entfernt). Reihenfolge-Abhängigkeit (Spec 02 vor 03 im Build) ist eine Build-Reihenfolge-Frage, keine Scope-Unschärfe mehr.
 - **A-2 (Char-Offsets):** `chunks.metadata` enthält `char_start`/`char_end` als Integer-Offsets in `sources.content_text` (aus dem Ingestion-Feature). Der Viewer löst sie über `chunk_id` auf; `citations` bleibt bei `{n, chunk_id, source_id}` (Contract 2 unverändert). → bestätigen, dass die Ingestion diese Keys wirklich schreibt.
 - **A-3 (Similarity-Threshold) (Eng-Review 2026-07-19, OV6, präzisiert):** Startwert `p_min_similarity = 0.35` für `text-embedding-3-small` ist eine begründete Schätzung, **kein** gemessener Wert. Kalibrierung ist ein **eigener Meilenstein direkt nach dem ersten echten Ingest** (nicht mehr vage „vor Launch", siehe §3.3) an einem kleinen gelabelten Set (on-/off-topic); AC-H1 (Bundeskanzler/Rezept) ist der kanonische Off-Topic-Muss-Refusal. Fallback bei unsauberer Trennung: Umschalten auf Margin-/Relative-Drop-Heuristik statt festem Cutoff (Gate-Logik dafür in `lib/chat/service.ts` austauschbar gekapselt). **Entschieden 2026-07-19: Startwert bestätigt, Kalibrierungs-Meilenstein nach erstem Ingest (Andi).**
 - **A-4 (Idempotenz):** Ohne Client-Message-ID kann ein Retry nach Fehler eine Message dublizieren. Für v1 akzeptiert; v2 ggf. Idempotency-Key/Client-ID-Spalte.
@@ -692,20 +761,27 @@ Zitat-Chip öffnet primär eine Popover-Karte; erst „Quelle anzeigen" im Popov
 
 ---
 
-## 14. Responsive-Verhalten (Design-Review 2026-07-19)
+## 14. Responsive-Verhalten (Design-Review 2026-07-19, Zitat-Zeilen präzisiert 2026-07-20)
 
 Mobil (≤768px, siehe auch Spec 01 „Design-Review-Ergänzungen" für das Gesamt-Layout): Chat ist
 bereits die Grundannahme dieser Spec als dominantes mittleres Panel (siehe DESIGN.md Layout) und
 braucht als Panel selbst keine Sonderbehandlung auf Mobile. Zitat-spezifisch:
 
-- Das Zitat-Popover (§7) bleibt auf Mobile ein Popover-artiges Overlay direkt am Chip — keine
-  Verhaltensänderung gegenüber Desktop.
+- **(präzisiert 2026-07-20):** Das Zitat-Popover (§7) bleibt auf Mobile ein Popover-artiges
+  Overlay direkt am Chip, geöffnet per Tap — **unverändert gegenüber der 2026-07-19-Fassung.**
+  Was sich geändert hat, ist NUR das Desktop-Verhalten: dort öffnet ein Klick nicht mehr das
+  Popover, sondern springt direkt (§7). Diese Divergenz ist beabsichtigt (siehe §7 Punkt 5) — sie
+  entsteht, weil Hover auf einem Touch-Gerät gar nicht existiert, nicht durch einen separaten,
+  unsichtbaren Mobile-Modus.
 - „Quelle anzeigen" öffnet den Reader-Mode auf Mobile als **Vollbild-Overlay** (nicht als
   drittel-breites Panel wie auf Desktop) mit einem Zurück-Pfeil (`data-test="source-reader-back"`,
   identischer Selector wie in Spec 02), der zurück zum Chat (bzw. zur vorherigen Panel-Ansicht)
   führt.
 - 44×44px-Touch-Targets für Chip, Popover-Link und Zurück-Pfeil; keine Funktion ist ausschließlich
-  per Hover erreichbar (Popover öffnet auf Touch-Geräten per Tap, nicht per Hover).
+  per Hover erreichbar (Popover öffnet auf Touch-Geräten per Tap, nicht per Hover) — **(2026-07-20,
+  AC-52):** auf Desktop löst dieselbe 44×44px-Fläche ebenfalls kein Hover-Popover aus, wenn der
+  Zeiger nur die Fläche, nicht aber den sichtbaren 16×16px-Chip berührt; Hover ist ausschließlich
+  an die sichtbare Chip-Fläche gebunden.
 - Focus-Trap gilt im Vollbild-Reader-Overlay analog zum Popover (siehe §6, A11y-Ergänzung).
 - **Kein Form-Overlay:** Dieses Vollbild-Overlay ist reine Content-/Navigation-Darstellung (Lesen
   einer Quelle), kein Formular — die Projektregel „Dialog statt Sheet für Formulare" bleibt
@@ -715,7 +791,7 @@ Neue ACs siehe §10 Gruppe K (AC-51).
 
 ---
 
-**Spec written:** `specs/03-chat-grounding.md` — 48 Akzeptanzkriterien (41 vor dieser Revision: 38 ursprünglich + 3 aus dem Eng-Review; + 7 neu aus der Design-Review 2026-07-19: Zitat-Popover, A11y, Empty-Chat-Chips, Responsive — siehe Gruppe K), 7 Annahmen, next: `/plan-eng-review specs/03-chat-grounding.md` (Eng-Review 2026-07-19 + Design-Review 2026-07-19 eingearbeitet)
+**Spec written:** `specs/03-chat-grounding.md` — 54 Akzeptanzkriterien (48 vor dieser Revision: 41 vor der 2026-07-19-Design-Review + 7 aus ihr: Zitat-Popover, A11y, Empty-Chat-Chips, Responsive; + 6 neu aus der Design-Review 2026-07-20, zweite Umkehrung: AC-52–AC-57, Hover-Bindung/Locator/Bild-Miniatur/Streaming-Sperre/Zurück-Pfad/Live-Region — siehe Gruppe K), 7 Annahmen, next: `/plan-eng-review specs/03-chat-grounding.md` (Eng-Review 2026-07-19 + Design-Review 2026-07-19 + Design-Review 2026-07-20 eingearbeitet)
 
 ## Approved Mockups
 
