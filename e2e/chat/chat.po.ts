@@ -40,8 +40,37 @@ export class ChatPanelPage {
     return this.page.getByTestId("citation-popover-open-source")
   }
 
+  get allMessages(): Locator {
+    return this.page.getByTestId("chat-message")
+  }
+
+  get headerMenu(): Locator {
+    return this.page.getByTestId("chat-header-menu")
+  }
+
+  get deleteHistoryMenuItem(): Locator {
+    return this.page.getByTestId("chat-header-menu-delete-history")
+  }
+
+  get deleteHistoryDialog(): Locator {
+    return this.page.getByTestId("delete-chat-history-dialog")
+  }
+
+  get deleteHistoryConfirm(): Locator {
+    return this.page.getByTestId("delete-chat-history-confirm-button")
+  }
+
+  get deleteHistoryCancel(): Locator {
+    return this.page.getByTestId("delete-chat-history-cancel-button")
+  }
+
   lastAssistantMessage(): Locator {
     return this.assistantMessages.last()
+  }
+
+  async openHistoryDeleteDialog() {
+    await this.headerMenu.click()
+    await this.deleteHistoryMenuItem.click()
   }
 
   async ask(question: string) {

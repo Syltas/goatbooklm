@@ -24,3 +24,14 @@ export const chatRequestSchema = z.object({
 })
 
 export type ChatRequestInput = z.infer<typeof chatRequestSchema>
+
+/**
+ * Input for `deleteChatHistoryAction`. Only the notebook is addressable — the
+ * owning `user_id` is resolved server-side from the session (never accepted
+ * from client input), same rule as every other action in this codebase.
+ */
+export const deleteChatHistorySchema = z.object({
+  notebookId: z.uuid("Ungültige Notizbuch-ID"),
+})
+
+export type DeleteChatHistoryInput = z.infer<typeof deleteChatHistorySchema>

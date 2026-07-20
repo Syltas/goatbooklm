@@ -20,6 +20,7 @@ import type { ChatUIMessage } from "@/lib/chat/types"
 import { cn } from "@/lib/utils"
 
 import { SourcesPanel } from "../sources/_components/sources-panel"
+import { ChatHeaderMenu } from "./chat-header-menu"
 import { useSourcesPolling } from "../sources/_components/use-sources-polling"
 import type { SourceWithChunkCount } from "../sources/types"
 import { PANEL_LABEL, type PanelKey, StudioPanelBody } from "./panel-placeholders"
@@ -47,6 +48,9 @@ interface DesktopPanelProps {
   onToggle: () => void
   /** Width/flex classes applied only while expanded. */
   expandedClassName: string
+  /** Panel-specific controls in the header, left of the collapse toggle.
+   *  Hidden while collapsed — the w-14 rail only has room for the toggle. */
+  headerActions?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -55,6 +59,7 @@ function DesktopPanel({
   collapsed,
   onToggle,
   expandedClassName,
+  headerActions,
   children,
 }: DesktopPanelProps) {
   return (
@@ -71,27 +76,30 @@ function DesktopPanel({
             {PANEL_LABEL[panelKey]}
           </h2>
         )}
-        {/* Collapse toggles are a desktop-only affordance (AC-45): on
-            mobile, Chat is always full-bleed and Sources/Studio open via
-            the bottom-tab sheet below — collapsing a panel down to a
-            useless w-14 sliver has no purpose there, and would strand the
-            Chat panel (its only mobile panel) in a collapsed state with
-            no way back short of widening the viewport. */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="ml-auto hidden md:inline-flex"
-          onClick={onToggle}
-          data-test={`${panelKey}-panel-collapse`}
-          aria-label={
-            collapsed
-              ? `${PANEL_LABEL[panelKey]}-Panel einblenden`
-              : `${PANEL_LABEL[panelKey]}-Panel ausblenden`
-          }
-        >
-          <CollapseIcon panelKey={panelKey} collapsed={collapsed} />
-        </Button>
+        <div className="ml-auto flex items-center gap-1">
+          {!collapsed && headerActions}
+          {/* Collapse toggles are a desktop-only affordance (AC-45): on
+              mobile, Chat is always full-bleed and Sources/Studio open via
+              the bottom-tab sheet below — collapsing a panel down to a
+              useless w-14 sliver has no purpose there, and would strand the
+              Chat panel (its only mobile panel) in a collapsed state with
+              no way back short of widening the viewport. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="hidden md:inline-flex"
+            onClick={onToggle}
+            data-test={`${panelKey}-panel-collapse`}
+            aria-label={
+              collapsed
+                ? `${PANEL_LABEL[panelKey]}-Panel einblenden`
+                : `${PANEL_LABEL[panelKey]}-Panel ausblenden`
+            }
+          >
+            <CollapseIcon panelKey={panelKey} collapsed={collapsed} />
+          </Button>
+        </div>
       </header>
       {!collapsed && <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>}
     </section>
@@ -115,11 +123,15 @@ function ChatPanelSlot({
   initialMessages,
   readyCount,
   onMobileReaderOpen,
+  historyClearedAt,
+  onMessageCountChange,
 }: {
   notebookId: string
   initialMessages: ChatUIMessage[]
   readyCount: number
   onMobileReaderOpen: () => void
+  historyClearedAt: number
+  onMessageCountChange: (count: number) => void
 }) {
   const { openSource } = useSourceReader()
 
@@ -141,6 +153,8 @@ function ChatPanelSlot({
       initialMessages={initialMessages}
       readyCount={readyCount}
       onCite={handleCite}
+      historyClearedAt={historyClearedAt}
+      onMessageCountChange={onMessageCountChange}
     />
   )
 }
@@ -160,6 +174,12 @@ export function NotebookDetailShell({
     studio: false,
   })
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null)
+
+  // Chat-Header-Menü state. `historyClearedAt` is a bump counter, not a
+  // boolean — clearing twice in one session must produce two distinct values
+  // for `ChatPanel`'s effect to fire again.
+  const [historyClearedAt, setHistoryClearedAt] = useState(0)
+  const [messageCount, setMessageCount] = useState(initialMessages.length)
 
   // Lifted above both the desktop and mobile-sheet mounts of the
   // Sources-Panel body (see the two `<SourcesPanel>` call sites below) so
@@ -210,12 +230,21 @@ export function NotebookDetailShell({
             collapsed={collapsed.chat}
             onToggle={() => toggle("chat")}
             expandedClassName="flex min-w-0 flex-1"
+            headerActions={
+              <ChatHeaderMenu
+                notebookId={notebook.id}
+                hasHistory={messageCount > 0}
+                onHistoryDeleted={() => setHistoryClearedAt((value) => value + 1)}
+              />
+            }
           >
             <ChatPanelSlot
               notebookId={notebook.id}
               initialMessages={initialMessages}
               readyCount={readyCount}
               onMobileReaderOpen={() => setMobilePanel("sources")}
+              historyClearedAt={historyClearedAt}
+              onMessageCountChange={setMessageCount}
             />
           </DesktopPanel>
 

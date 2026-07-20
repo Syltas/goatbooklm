@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { ChatUIMessage } from "@/lib/chat/types"
 
@@ -15,6 +15,17 @@ interface ChatPanelProps {
   initialMessages: ChatUIMessage[]
   readyCount: number
   onCite: (args: OnCiteArgs) => void
+  /**
+   * Bumped by the shell after `deleteChatHistoryAction` succeeded. The
+   * transcript lives in `useChat`'s client state, not in RSC state, so a
+   * `revalidatePath` alone would leave the old bubbles on screen until a full
+   * reload — this is the signal to drop them.
+   */
+  historyClearedAt?: number
+  /** Lets the shell disable the "Chatverlauf löschen" item while the
+   *  transcript is empty, using the live client count rather than the
+   *  server-rendered `initialMessages` snapshot. */
+  onMessageCountChange?: (count: number) => void
 }
 
 /** v1 static, generic suggestions (§6 "Empty-Chat-State", AC-50) — not
@@ -35,10 +46,17 @@ const SUGGESTED_QUESTIONS = [
  * client-rendering-only (optimistic user bubble, streaming display), never
  * reaches the server as a forgeable array (AC-44).
  */
-export function ChatPanel({ notebookId, initialMessages, readyCount, onCite }: ChatPanelProps) {
+export function ChatPanel({
+  notebookId,
+  initialMessages,
+  readyCount,
+  onCite,
+  historyClearedAt,
+  onMessageCountChange,
+}: ChatPanelProps) {
   const [input, setInput] = useState("")
 
-  const { messages, sendMessage, status, error, regenerate, clearError } =
+  const { messages, setMessages, sendMessage, status, error, regenerate, clearError } =
     useChat<ChatUIMessage>({
       id: notebookId,
       messages: initialMessages,
@@ -62,6 +80,21 @@ export function ChatPanel({ notebookId, initialMessages, readyCount, onCite }: C
 
   const disabled = readyCount === 0
   const isBusy = status === "submitted" || status === "streaming"
+
+  // Only react to *changes* of the signal, never to its initial value — a
+  // fresh mount already starts from the server-rendered transcript, and
+  // clearing it here would wipe the history on every remount.
+  const lastClearedAt = useRef(historyClearedAt)
+  useEffect(() => {
+    if (historyClearedAt === lastClearedAt.current) return
+    lastClearedAt.current = historyClearedAt
+    setMessages([])
+    clearError()
+  }, [historyClearedAt, setMessages, clearError])
+
+  useEffect(() => {
+    onMessageCountChange?.(messages.length)
+  }, [messages.length, onMessageCountChange])
 
   function handleSend(text: string) {
     const trimmed = text.trim()

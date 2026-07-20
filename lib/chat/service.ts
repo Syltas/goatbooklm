@@ -229,6 +229,51 @@ class ChatService {
   }
 }
 
+/**
+ * History mutations need nothing but the Supabase client — no query
+ * embedding, no retrieval tuning. Giving them their own factory keeps
+ * `ChatServiceDeps` honest: a caller that only wants to clear the transcript
+ * shouldn't have to invent an `embed` function and a `topK` it will never
+ * use just to satisfy `createChatService`.
+ */
+export function createChatHistoryService(db: SupabaseClient<Database>) {
+  return {
+    /**
+     * Owner-check, identical in spirit to `ChatService.assertNotebookOwned`:
+     * RLS scopes `notebooks` to their owner, so "belongs to someone else" and
+     * "does not exist" are indistinguishable here — both return `null` and
+     * both must fail closed at the call site.
+     */
+    async assertNotebookOwned(notebookId: string): Promise<{ id: string } | null> {
+      const { data, error } = await db
+        .from("notebooks")
+        .select("id")
+        .eq("id", notebookId)
+        .maybeSingle()
+
+      if (error) throw error
+      return data
+    },
+
+    /**
+     * Deletes every message of one notebook and returns how many rows went.
+     * The `user_id` filter is defense in depth — the `messages_owner` RLS
+     * policy already makes a cross-user delete impossible — and `userId` must
+     * be the server-resolved id from `getUser()`, never a client-supplied one.
+     */
+    async deleteHistory(notebookId: string, userId: string): Promise<number> {
+      const { count, error } = await db
+        .from("messages")
+        .delete({ count: "exact" })
+        .eq("notebook_id", notebookId)
+        .eq("user_id", userId)
+
+      if (error) throw error
+      return count ?? 0
+    },
+  }
+}
+
 function normalizeForComparison(value: string): string {
   return value.trim().replace(/\s+/g, " ")
 }
