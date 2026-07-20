@@ -76,16 +76,17 @@ export interface ParsedCitations {
 
 // ---------------------------------------------------------------------------
 // UI-facing shapes (route ↔ `components/chat/*`) — specs/03-chat-grounding.md
-// §7 "Popover-first Highlight-Bridge". Data strategy (see task report for
-// full rationale): the citation-popover needs the source title, the cited
-// passage, and char offsets to render + drive the Highlight-Bridge WITHOUT a
-// per-click round trip. `messages.citations` (Contract 2) stays the stable,
-// minimal `{n, chunk_id, source_id}` shape — CitationDetail is a client/route
-// convenience shape, never persisted as-is. It is delivered two ways, both
-// zero-extra-request for the popover:
+// §7 "Highlight-Bridge". Data strategy (see task report for full rationale):
+// the citation-popover needs the source title, the locator (page/paragraph),
+// the cited passage, and char offsets to render + drive the Highlight-Bridge
+// WITHOUT a per-click round trip. `messages.citations` (Contract 2) stays the
+// stable, minimal `{n, chunk_id, source_id}` shape — CitationDetail is a
+// client/route convenience shape, never persisted as-is. It is delivered two
+// ways, both zero-extra-request for the popover:
 //   - live turn: `app/api/chat/route.ts` already holds the retrieved chunks
-//     + a source-title lookup in memory, and attaches CitationDetail[] to the
-//     `data-citations` UI message data part it writes after the stream ends.
+//     + a source lookup (title/type) in memory, and attaches CitationDetail[]
+//     to the `data-citations` UI message data part it writes after the
+//     stream ends.
 //   - reload: `lib/chat/hydrate.ts` reconstructs the same shape with ONE bulk
 //     `chunks`/`sources` join query over every persisted citation across the
 //     whole message history (not one query per message/citation).
@@ -94,9 +95,27 @@ export interface CitationDetail {
   chunkId: string
   sourceId: string
   sourceTitle: string
+  /** `sources.type` ("pdf" | "text" | "web" | "docx" | "xlsx" | "image" | …),
+   *  carried through so the popover can show an image thumbnail (Design-
+   *  Review 2026-07-20 §Teil 2) without a second round trip just to learn
+   *  the source's type. */
+  sourceType: string
   content: string
   charStart?: number
   charEnd?: number
+  /** PDF page the chunk was extracted from (`buildChunkMetadata`,
+   *  `lib/ingestion/service.ts`) — `undefined` for any source format that
+   *  doesn't paginate (web/text/note), which is exactly the "no Seite" half
+   *  of the locator line's clean degrade. */
+  page?: number
+  /** 1-indexed position of this chunk within its source's chunk sequence
+   *  (`chunks.chunk_index` + 1) — the locator's "Absatz N". This is a
+   *  document-wide ordinal, not a true per-page paragraph count: computing
+   *  the latter would need every chunk of the page, not just the ones a
+   *  single retrieval turn already holds in memory, which would break the
+   *  zero-extra-request property above. Still a useful locator: it
+   *  disambiguates two citations that land on the same `page`. */
+  paragraph?: number
 }
 
 /** Payload of the `data-citations` UI message data part — see
@@ -139,16 +158,17 @@ export type ChatDataParts = {
 export type ChatUIMessage = import("ai").UIMessage<unknown, ChatDataParts>
 
 /**
- * Reads the `char_start`/`char_end` integer offsets the ingestion pipeline
- * writes into `chunks.metadata` (`lib/ingestion/service.ts`'s
+ * Reads the `char_start`/`char_end`/`page` integer fields the ingestion
+ * pipeline writes into `chunks.metadata` (`lib/ingestion/service.ts`'s
  * `buildChunkMetadata`, Annahme A-2) — returns `{}` for anything else
  * (missing/malformed metadata, an alt-chunk predating offsets) so callers can
- * graceful-degrade (AC-G4: reader opens without scroll/highlight) instead of
- * throwing.
+ * graceful-degrade (AC-G4: reader opens without scroll/highlight, locator
+ * line omits "Seite") instead of throwing or showing "Seite undefined".
  */
 export function readChunkOffsets(metadata: Json | null | undefined): {
   charStart?: number
   charEnd?: number
+  page?: number
 } {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return {}
@@ -157,9 +177,11 @@ export function readChunkOffsets(metadata: Json | null | undefined): {
   const record = metadata as Record<string, unknown>
   const charStart = record.char_start
   const charEnd = record.char_end
+  const page = record.page
 
   return {
     charStart: typeof charStart === "number" ? charStart : undefined,
     charEnd: typeof charEnd === "number" ? charEnd : undefined,
+    page: typeof page === "number" ? page : undefined,
   }
 }

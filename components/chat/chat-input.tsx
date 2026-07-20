@@ -12,6 +12,10 @@ interface ChatInputProps {
   onSend: (text: string) => void
   disabled: boolean
   busy: boolean
+  /** Display-only — the same live-polled ready-source count `ChatPanel`
+   *  already derives, shown next to the composer per the v2 design
+   *  ("Quellen-Zähler"). Purely presentational, no behavior tied to it. */
+  readyCount: number
 }
 
 /**
@@ -20,7 +24,14 @@ interface ChatInputProps {
  * (submitted/streaming, AC-F3) locks it mid-turn without the empty-notebook
  * copy. Enter sends, Shift+Enter inserts a newline (§6).
  */
-export function ChatInput({ value, onChange, onSend, disabled, busy }: ChatInputProps) {
+export function ChatInput({
+  value,
+  onChange,
+  onSend,
+  disabled,
+  busy,
+  readyCount,
+}: ChatInputProps) {
   const canSend = !disabled && !busy && value.trim().length > 0
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -31,27 +42,36 @@ export function ChatInput({ value, onChange, onSend, disabled, busy }: ChatInput
   }
 
   return (
-    <div className="shrink-0 border-t border-border p-3">
+    <div className="shrink-0 px-4 pt-3 pb-4">
       {disabled && (
-        <p className="mb-2 text-xs text-muted-foreground" data-test="chat-empty-hint">
+        <p
+          className="mx-auto mb-2 max-w-[720px] text-xs text-muted-foreground"
+          data-test="chat-empty-hint"
+        >
           Fügen Sie zuerst eine Quelle hinzu, um zu chatten.
         </p>
       )}
-      <div className="flex items-end gap-2">
+      <div className="mx-auto flex max-w-[720px] items-end gap-2 rounded-[16px] border border-border bg-card py-2 pr-2 pl-4 focus-within:border-[var(--action)]">
         <Textarea
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled || busy}
           placeholder="Stellen Sie eine Frage zu Ihren Quellen…"
-          className="max-h-40 min-h-11 resize-none"
+          className="max-h-40 min-h-7 flex-1 resize-none border-none bg-transparent px-0 py-1.5 text-[15px] leading-[1.6] text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0"
           aria-label="Chat-Nachricht"
           data-test="chat-input"
         />
+        <span
+          className="shrink-0 self-center text-[12.5px] whitespace-nowrap text-[var(--text-faint)]"
+          data-test="chat-source-count"
+        >
+          {readyCount} {readyCount === 1 ? "Quelle" : "Quellen"}
+        </span>
         <Button
           type="button"
           size="icon"
-          className="min-h-11 min-w-11 shrink-0 rounded-full"
+          className="size-10 shrink-0 rounded-full"
           disabled={!canSend}
           onClick={() => onSend(value)}
           aria-label="Senden"

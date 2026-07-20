@@ -56,7 +56,16 @@ test.describe("chat history deletion", () => {
     await chat.deleteHistoryConfirm.click()
     await expect(chat.deleteHistoryDialog).toBeHidden()
     await expect(chat.allMessages).toHaveCount(0)
-    await expect(chat.suggestedChips.first()).toBeVisible()
+    // Empty-chat-summary feature (Part A, e2e/chat/chat-actions.spec.ts):
+    // once this notebook's one `ready` source has a generated summary, the
+    // empty state shows that instead of the static suggested-question
+    // chips — which variant renders depends on whether the worker's
+    // background summarization finished by this point in the test, not on
+    // anything this test itself is exercising (history deletion). Either is
+    // a valid "cleared and usable" empty state here.
+    await expect(
+      page.getByTestId("chat-notebook-summary").or(chat.suggestedChips.first())
+    ).toBeVisible()
 
     // …and the rows are really gone server-side, not just hidden client-side.
     await page.reload()

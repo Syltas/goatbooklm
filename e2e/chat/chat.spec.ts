@@ -50,7 +50,16 @@ test.describe("chat grounding end-to-end", () => {
     // (readyCount is derived from the same live-polled state the Sources
     // panel renders — see `notebook-detail-shell.tsx`).
     await expect(chat.input).toBeEnabled({ timeout: 15_000 })
-    await expect(chat.suggestedChips.first()).toBeVisible()
+    // Empty-chat-summary feature (Part A): once this notebook's one `ready`
+    // source has a generated summary, the empty state shows that instead of
+    // the static suggested-question chips — a client poll fetches it every
+    // 3s, so whether it or the chips render here depends on timing this test
+    // doesn't control (not on anything this test itself exercises). Either
+    // is a valid "source ready, empty-chat state usable" render — see
+    // `chat-history.spec.ts` for the same pattern.
+    await expect(
+      page.getByTestId("chat-notebook-summary").or(chat.suggestedChips.first())
+    ).toBeVisible()
 
     // AC-H1 — off-topic question against a single-topic source: no chunk
     // clears the similarity gate (Schicht 2), so the Anthropic call never
@@ -71,18 +80,27 @@ test.describe("chat grounding end-to-end", () => {
     await expect(answer).toContainText("742", { timeout: 60_000 })
     await expect(answer.getByTestId("citation-chip").first()).toBeVisible()
 
-    // §7 Popover-first Highlight-Bridge (AC-45/AC-G1/AC-G2/AC-H5-light):
-    // chip click opens the popover with the cited passage, NOT the reader
-    // directly.
+    // §7 Highlight-Bridge, Design-Review 2026-07-20 (second reversal, replaces
+    // the 2026-07-19 "click opens the popover" fassung, AC-45/AC-G1/AC-52):
+    // HOVER — not click — opens the popover now, bound to the chip's visible
+    // 16x16px box (Playwright's `.hover()` targets that box's center, which
+    // is exactly what the geometry fix requires).
     const chip = answer.getByTestId("citation-chip").first()
-    await chip.click()
+    await chip.hover()
     await expect(chat.citationPopover).toBeVisible()
     await expect(chat.citationPopover).toContainText(SOURCE_TITLE)
     await expect(chat.citationPopover).toContainText("742")
 
-    // "Quelle anzeigen" opens the Reader-Mode in the (already-visible,
-    // desktop) Sources-Panel and highlights the cited passage.
-    await chat.citationPopoverOpenSource.click()
+    // AC-53 — a text source has no `page` (only PDFs paginate), so the
+    // locator degrades to "Absatz N" alone, never "Seite undefined".
+    await expect(chat.citationPopoverLocator).toContainText("Absatz")
+    await expect(chat.citationPopoverLocator).not.toContainText("Seite")
+
+    // A real mouse CLICK now jumps straight into the Reader-Mode instead of
+    // toggling the popover (AC-G1/AC-G2) — it also closes whatever the
+    // preceding hover opened.
+    await chip.click()
+    await expect(chat.citationPopover).toBeHidden()
     await expect(sources.readerContent).toBeVisible()
     const highlight = page.getByTestId("source-reader-highlight")
     await expect(highlight).toBeVisible()

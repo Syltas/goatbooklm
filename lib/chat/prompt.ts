@@ -15,6 +15,9 @@ export {
   stripIncompleteHint,
   appendIncompleteHint,
   isGateMessage,
+  FOLLOW_UP_TRAILER_MARKER,
+  splitFollowUpTrailer,
+  parseFollowUpQuestions,
 } from "./messages"
 
 /**
@@ -64,7 +67,18 @@ RULES — follow every one, without exception:
    always stays in German, exactly as written.
 
 8. CITATIONS ARE LITERAL. Only use [n] values that actually appear as a <source index="n">
-   in this turn. Never invent a citation number.`
+   in this turn. Never invent a citation number.
+
+9. FOLLOW-UP QUESTIONS. After a normal answer — i.e. anything that is NOT the exact refusal
+   sentence from rule 3 — append, after a blank line, the literal marker line "<<<FOLGEFRAGEN>>>"
+   followed by exactly three numbered follow-up questions in German, each on its own line, each a
+   natural next question a user might ask that builds on your answer above:
+   <<<FOLGEFRAGEN>>>
+   1. <erste Folgefrage>
+   2. <zweite Folgefrage>
+   3. <dritte Folgefrage>
+   If your answer IS the exact refusal sentence from rule 3, do NOT append this block at all —
+   rule 3's "nothing else" still applies to a refusal.`
 
 /**
  * Escapes the four characters that could let embedded chunk/title text break

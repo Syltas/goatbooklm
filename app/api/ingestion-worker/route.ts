@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto"
 
+import { anthropic } from "@ai-sdk/anthropic"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { generateText } from "ai"
 import { NextResponse } from "next/server"
 
 import type { Database } from "@/lib/database.types"
@@ -8,6 +10,7 @@ import { createIngestionDeps } from "@/lib/ingestion/deps"
 import { deleteIngestionJob, readIngestionJobs } from "@/lib/ingestion/queue"
 import { createIngestionService } from "@/lib/ingestion/service"
 import { processIngestionTick } from "@/lib/ingestion/worker"
+import { createNotebookSummaryService, type SummarizeFn } from "@/lib/notebooks/summary-service"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 /**
@@ -30,6 +33,35 @@ export const runtime = "nodejs"
 const WORKER_SECRET_HEADER = "x-worker-secret"
 const READ_VT_SECONDS = 600
 const READ_BATCH_SIZE = 3
+
+// Same slug as `app/api/chat/route.ts`'s `CHAT_MODEL_ID` — verified against
+// the installed `@ai-sdk/anthropic`'s `AnthropicModelId` union, a real,
+// currently-deployable slug. Not imported from the chat route: that module
+// is request/streaming-specific (§3.4 chat contract) and this worker calls
+// the model very differently (`generateText`, no streaming, no chat
+// history) — a shared constant here would be the only thing coupling the
+// two.
+const SUMMARY_MODEL_ID = "claude-sonnet-5"
+
+/**
+ * Real `SummarizeFn` wiring for `lib/notebooks/summary-service.ts` — a plain
+ * non-streaming `generateText` call (there is no client waiting on a stream
+ * here, unlike `app/api/chat/route.ts`'s `streamText`). Composed at this
+ * route rather than imported into the service module itself, same
+ * "injected dependency, not a direct provider import" rule as
+ * `ChatServiceDeps.embed`/`IngestionDeps.embedChunks` — keeps
+ * `summary-service.ts` unit-testable with a stub, no real Anthropic call.
+ */
+const summarizeWithClaude: SummarizeFn = async ({ system, prompt, maxOutputTokens }) => {
+  const { text } = await generateText({
+    model: anthropic(SUMMARY_MODEL_ID),
+    system,
+    prompt,
+    temperature: 0.2,
+    maxOutputTokens,
+  })
+  return text
+}
 
 // Eng-Review L3: the expected secret is no longer read from
 // `process.env.INGESTION_WORKER_SECRET` — it lives ONLY in the
@@ -125,6 +157,29 @@ export async function POST(request: Request) {
     runIngestionJob: (data) => service.runIngestionJob(data),
     deleteJob: (msgId) => deleteIngestionJob(supabase, msgId),
   })
+
+  // Part A (empty-chat summary) — regenerate right after the `ready`
+  // TRANSITION, never at insert time: `results` only carries `notebookId`
+  // for jobs where `runIngestionJob` actually resolved a source row (see
+  // `WorkerJobResult`'s doc comment), so `notFound`/`crashed`/`invalid`
+  // entries are naturally excluded. Deduped via `Set` — a bulk upload can
+  // land several sources of the SAME notebook in one tick, and each only
+  // needs one regeneration covering all of them, not one per source.
+  const readyNotebookIds = new Set(
+    results
+      .filter((result) => result.status === "ready" && result.notebookId)
+      .map((result) => result.notebookId as string)
+  )
+  const summaryService = createNotebookSummaryService({
+    db: supabase,
+    summarize: summarizeWithClaude,
+  })
+  for (const notebookId of readyNotebookIds) {
+    // `regenerate` never throws (see its own doc comment) — no try/catch
+    // needed here, but a summary failure must never have been able to
+    // reach this loop as an unhandled rejection either way.
+    await summaryService.regenerate(notebookId)
+  }
 
   return NextResponse.json({ processed: jobs.length, results })
 }

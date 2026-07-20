@@ -15,6 +15,7 @@ import {
   GROUNDING_SYSTEM_PROMPT,
   NO_COVERAGE_MESSAGE,
   NO_SOURCES_MESSAGE,
+  splitFollowUpTrailer,
 } from "@/lib/chat/prompt"
 import { parseCitations } from "@/lib/chat/citations"
 import { CHAT_MAX_OUTPUT_TOKENS } from "@/lib/chat/limits"
@@ -180,12 +181,15 @@ export async function POST(request: Request) {
     return gateResponse(NO_COVERAGE_MESSAGE)
   }
 
-  // §3.4 — `match_chunks` doesn't return a title; join it here (composition
-  // site responsibility per `PromptChunk`'s docstring, `lib/chat/types.ts`).
+  // §3.4 — `match_chunks` doesn't return a title (or type); join both here
+  // (composition site responsibility per `PromptChunk`'s docstring,
+  // `lib/chat/types.ts`). `type` rides along with the same query so
+  // `buildCitationDetails` below can set `CitationDetail.sourceType` (image
+  // thumbnail, Design-Review 2026-07-20 §Teil 2) without a second lookup.
   const sourceIds = [...new Set(chunks.map((chunk) => chunk.sourceId))]
   const { data: sourceRows, error: sourceError } = await supabase
     .from("sources")
-    .select("id, title")
+    .select("id, title, type")
     .in("id", sourceIds)
 
   if (sourceError) {
@@ -194,6 +198,7 @@ export async function POST(request: Request) {
   }
 
   const titleById = new Map((sourceRows ?? []).map((row) => [row.id, row.title]))
+  const typeById = new Map((sourceRows ?? []).map((row) => [row.id, row.type]))
   const promptChunks: PromptChunk[] = chunks.map((chunk) => ({
     ...chunk,
     title: titleById.get(chunk.sourceId) ?? "Unbenannte Quelle",
@@ -222,9 +227,15 @@ export async function POST(request: Request) {
         chunkId: citation.chunk_id,
         sourceId: citation.source_id,
         sourceTitle: titleById.get(citation.source_id) ?? "Unbenannte Quelle",
+        sourceType: typeById.get(citation.source_id) ?? "text",
         content: chunk?.content ?? "",
         charStart: offsets.charStart,
         charEnd: offsets.charEnd,
+        page: offsets.page,
+        // 1-indexed "Absatz N" — see `CitationDetail.paragraph`'s docstring
+        // (`lib/chat/types.ts`) for why this is a document-wide ordinal, not
+        // a true per-page paragraph count.
+        paragraph: typeof chunk?.chunkIndex === "number" ? chunk.chunkIndex + 1 : undefined,
       }
     })
   }
@@ -314,7 +325,21 @@ export async function POST(request: Request) {
           return
         }
 
-        const normalizedPartial = normalizeRefusal(partialText, service)
+        // Part B "Folgefragen als Trailer" — strip BEFORE `normalizeRefusal`,
+        // not after: `normalizeRefusal`'s short-answer word-overlap check
+        // compares `trimmed.length` against `NO_COVERAGE_MESSAGE.length * 2`,
+        // and a trailer appended to a genuinely-short quasi-refusal would
+        // push it over that threshold, silently breaking that heuristic.
+        // `isStreaming: true` — despite this being the final text this
+        // request will ever produce, it broke off mid-stream (that's WHY
+        // we're in this catch block), so a trailing substring that merely
+        // resembles a marker prefix is exactly as likely to be a marker cut
+        // off mid-emission as it is to be coincidental prose. `false` here
+        // (Review-Fix Befund 1) would persist that partial marker fragment
+        // into `messages.content` FOREVER — there is no later render pass
+        // that ever re-derives/strips it again once written to the DB.
+        const { content: partialWithoutTrailer } = splitFollowUpTrailer(partialText, true)
+        const normalizedPartial = normalizeRefusal(partialWithoutTrailer, service)
         const partialValidation = parseCitations(normalizedPartial, chunks)
         if (partialValidation.invalidCount > 0) {
           console.warn(
@@ -352,7 +377,26 @@ export async function POST(request: Request) {
         return
       }
 
-      const normalizedText = normalizeRefusal(text, service)
+      // Part B "Folgefragen als Trailer" — same "strip before normalizeRefusal"
+      // reasoning as the M3 rescue path above. The trailer itself is never
+      // persisted or citation-validated; `message-item.tsx` independently
+      // re-derives it client-side from the raw streamed text (see
+      // `splitFollowUpTrailer`'s docstring) — nothing about it needs to
+      // travel through `data-citations`.
+      //
+      // `isStreaming: finishReason !== "stop"` (Review-Fix Befund 1), not an
+      // unconditional `false`: `result.text` resolving without throwing only
+      // means the SDK finished driving the request, not that the model's own
+      // turn ended cleanly. A `finishReason` of `"length"` (budget hit) or
+      // anything else non-"stop" means `text` was cut off at an arbitrary
+      // token boundary — possibly mid-marker — same as the M3 rescue case
+      // above, and for the same reason must hold back a trailing
+      // marker-prefix instead of persisting it as if it were real content.
+      const { content: textWithoutTrailer } = splitFollowUpTrailer(
+        text,
+        finishReason !== "stop"
+      )
+      const normalizedText = normalizeRefusal(textWithoutTrailer, service)
       const validation = parseCitations(normalizedText, chunks)
       if (validation.invalidCount > 0) {
         console.warn(

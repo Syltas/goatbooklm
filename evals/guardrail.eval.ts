@@ -5,7 +5,12 @@ import { streamText } from "ai"
 import { afterAll, describe, expect, test } from "vitest"
 
 import { parseCitations } from "@/lib/chat/citations"
-import { buildUserTurn, GROUNDING_SYSTEM_PROMPT, NO_COVERAGE_MESSAGE } from "@/lib/chat/prompt"
+import {
+  buildUserTurn,
+  GROUNDING_SYSTEM_PROMPT,
+  NO_COVERAGE_MESSAGE,
+  splitFollowUpTrailer,
+} from "@/lib/chat/prompt"
 import type { PromptChunk } from "@/lib/chat/types"
 
 /**
@@ -129,7 +134,18 @@ async function runCase(question: string, chunks: PromptChunk[]): Promise<CaseRes
   totalUsage.inputTokens += usage.inputTokens ?? 0
   totalUsage.outputTokens += usage.outputTokens ?? 0
 
-  const parsed = parseCitations(fullText, chunks)
+  // Part B "Folgefragen als Trailer" — the system prompt now instructs the
+  // model to append a `<<<FOLGEFRAGEN>>>` block after a normal answer (see
+  // `GROUNDING_SYSTEM_PROMPT` rule 9, `lib/chat/prompt.ts`). Stripped here
+  // BEFORE `parseCitations`, exactly like `app/api/chat/route.ts` does,
+  // so the eval's structural assertions (invented-color regex, "no leaked
+  // Paris", etc.) scan only the actual answer — never the follow-up
+  // questions themselves, which are prose about the topic and could
+  // otherwise trip those checks for reasons that have nothing to do with
+  // grounding.
+  const { content: withoutTrailer } = splitFollowUpTrailer(fullText, false)
+
+  const parsed = parseCitations(withoutTrailer, chunks)
   return { fullText, ...parsed }
 }
 

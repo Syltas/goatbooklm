@@ -41,13 +41,23 @@ export async function buildInitialMessages(
 
   const detailByChunkId = new Map<
     string,
-    { content: string; metadata: Json; sourceTitle: string }
+    {
+      content: string
+      metadata: Json
+      chunkIndex: number
+      sourceTitle: string
+      sourceType: string
+    }
   >()
 
   if (chunkIds.size > 0) {
+    // `chunk_index`/`sources(type)` ride along with the same bulk query —
+    // needed for the locator line's "Absatz N" and the popover's image
+    // thumbnail (Design-Review 2026-07-20 §Teil 1/2), without turning this
+    // back into a per-citation lookup.
     const { data, error } = await db
       .from("chunks")
-      .select("id, content, metadata, sources(title)")
+      .select("id, content, metadata, chunk_index, sources(title, type)")
       .in("id", [...chunkIds])
 
     if (error) throw error
@@ -56,7 +66,9 @@ export async function buildInitialMessages(
       detailByChunkId.set(chunk.id, {
         content: chunk.content,
         metadata: chunk.metadata,
+        chunkIndex: chunk.chunk_index,
         sourceTitle: chunk.sources?.title ?? "Unbenannte Quelle",
+        sourceType: chunk.sources?.type ?? "text",
       })
     }
   }
@@ -81,9 +93,14 @@ export async function buildInitialMessages(
         chunkId: citation.chunk_id,
         sourceId: citation.source_id,
         sourceTitle: detail?.sourceTitle ?? "Unbenannte Quelle",
+        sourceType: detail?.sourceType ?? "text",
         content: detail?.content ?? "",
         charStart: offsets.charStart,
         charEnd: offsets.charEnd,
+        page: offsets.page,
+        // See `buildCitationDetails` (`app/api/chat/route.ts`) for why this
+        // is a document-wide ordinal, not a true per-page paragraph count.
+        paragraph: typeof detail?.chunkIndex === "number" ? detail.chunkIndex + 1 : undefined,
       }
     })
 

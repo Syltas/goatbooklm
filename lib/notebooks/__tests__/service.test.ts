@@ -60,6 +60,11 @@ const NOTEBOOK_ROW: Notebook = {
   description: "Notizen zur Kampagne",
   created_at: "2026-07-01T00:00:00.000Z",
   updated_at: "2026-07-01T00:00:00.000Z",
+  // Part A (empty-chat summary) — not exercised by any test in this file,
+  // just needed to satisfy the `Notebook` row shape after the migration
+  // added these two columns.
+  summary: null,
+  summary_stale: true,
 }
 
 const DB_ERROR = { message: "connection refused", code: "ECONNREFUSED" }

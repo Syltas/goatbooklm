@@ -40,6 +40,14 @@ export class ChatPanelPage {
     return this.page.getByTestId("citation-popover-open-source")
   }
 
+  /** "Seite X · Absatz Y" locator line (Design-Review 2026-07-20 §Teil 1) —
+   *  absent when it degrades to nothing (theoretical: neither page nor
+   *  paragraph available), present as "Absatz Y" alone for a non-paginated
+   *  source (text/web/note). */
+  get citationPopoverLocator(): Locator {
+    return this.page.getByTestId("citation-popover-locator")
+  }
+
   get allMessages(): Locator {
     return this.page.getByTestId("chat-message")
   }
