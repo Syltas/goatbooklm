@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-figtree);
+  --font-sans: var(--font-nunito-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-baloo);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -57,13 +57,14 @@
    * this block — every derived shadcn token picks the new value up
    * automatically through the indirection.
    * --------------------------------------------------------------------- */
-  --bg: #ffffff;
+  --bg: #f6f5f1;
   --surface: #ffffff;
-  --surface-2: #f6f6f7;
-  --border: #e8e8ea;
-  --text: #1f1f1f;
-  --text-muted: #5f6368;
-  --primary: #1f1f1f;
+  --surface-2: #f1efe9;
+  --border: #e7e4de;
+  --text: #23211e;
+  --text-muted: #78736b;
+  --text-faint: #a8a29b;
+  --primary: #23211e;
   --primary-fg: #ffffff;
   /* Blau-Accent laut DESIGN.md — Links, aktive Source, Fokus-Ring,
      Citation-Chip-Text. NICHT auf shadcns `--accent` mappen: shadcn nutzt
@@ -128,6 +129,7 @@
   --border: #3c4043;
   --text: #e8eaed;
   --text-muted: #9aa0a6;
+  --text-faint: #6e6a64;
   --primary: #e8eaed;
   --primary-fg: #131314;
   --action: #8ab4f8;
@@ -164,6 +166,27 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* notebook-detail-shell.tsx's Sources/Studio `Panel`s: `Panel`'s `className`
+   prop lands on an inner content div, never the outer div that actually
+   carries the flex-basis/flex-grow sizing — so a Tailwind `hidden md:flex`
+   in that className only hides the content, leaving the (still full-width)
+   outer wrapper's percentage share reserved next to Chat below 768px. The
+   `data-desktop-only` attribute reaches the outer div instead (it's a plain
+   rest prop the component forwards there), and `display: none` — unlike
+   `visibility: hidden` — removes the element from the flex row entirely,
+   which is what actually makes Chat full-bleed on mobile.
+   `!important` is required, not decorative: that same outer div carries the
+   library's own inline `style="display:flex; …"`, and inline styles beat
+   any external stylesheet rule regardless of selector specificity — plain
+   `display: none` here would compile correctly and still visibly do
+   nothing (confirmed the hard way: Chat stayed at 60% width on a 390px
+   viewport until this was added). */
+@media (max-width: 767px) {
+  [data-desktop-only] {
+    display: none !important;
   }
 }
 

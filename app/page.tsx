@@ -1,26 +1,29 @@
-import Link from "next/link";
+import { ClosingCta } from "@/app/_components/landing/closing-cta";
+import { FaqSection } from "@/app/_components/landing/faq-section";
+import { Features } from "@/app/_components/landing/features";
+import { Hero } from "@/app/_components/landing/hero";
+import { HowItWorks } from "@/app/_components/landing/how-it-works";
+import { ProductMockup } from "@/app/_components/landing/product-mockup";
+import { SelfHostedBand } from "@/app/_components/landing/self-hosted-band";
+import { SiteFooter } from "@/app/_components/landing/site-footer";
+import { SiteHeader } from "@/app/_components/landing/site-header";
 
-import { Button } from "@/components/ui/button";
-
+/**
+ * Marketing-Landingpage — pixelgenauer Nachbau von
+ * `design_handoff_goatbooklm/Landing Page.dc.html` (maßgebliche Spezifikation).
+ */
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8 text-center">
-      <main className="flex max-w-xl flex-col items-center gap-6">
-        <h1 className="text-4xl font-semibold tracking-tight">GoatbookLM</h1>
-        <p className="text-muted-foreground text-balance">
-          Eine offene, selbst gehostete Alternative zu NotebookLM — lade
-          Quellen hoch, stelle Fragen und erhalte fundierte, quellenbasierte
-          Antworten.
-        </p>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button asChild data-test="landing-signup-link">
-            <Link href="/signup">Jetzt starten</Link>
-          </Button>
-          <Button asChild variant="outline" data-test="landing-login-link">
-            <Link href="/login">Anmelden</Link>
-          </Button>
-        </div>
-      </main>
+    <div className="bg-[#fdfdfc] text-[#23211e]">
+      <SiteHeader />
+      <Hero />
+      <ProductMockup />
+      <HowItWorks />
+      <Features />
+      <SelfHostedBand />
+      <FaqSection />
+      <ClosingCta />
+      <SiteFooter />
     </div>
   );
 }

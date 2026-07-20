@@ -2,8 +2,10 @@ import { notFound } from "next/navigation"
 
 import { buildInitialMessages } from "@/lib/chat/hydrate"
 import { createNotebookService } from "@/lib/notebooks/service"
+import { createNoteService } from "@/lib/notes/service"
 import { createClient } from "@/lib/supabase/server"
 
+import { AppHeader } from "../../_components/app-header"
 import { NotebookDetailShell } from "./_components/notebook-detail-shell"
 import type { SourceWithChunkCount } from "./sources/types"
 
@@ -50,11 +52,23 @@ export default async function NotebookDetailPage({
 
   const initialMessages = await buildInitialMessages(supabase, messagesData ?? [])
 
+  // Studio panel's notes tab (lib/notes/service.ts) — same "load
+  // server-side, hand down as initial state" shape as sources/messages
+  // above, not a client-side fetch.
+  const noteService = createNoteService(supabase)
+  const notes = await noteService.list(notebookId)
+
   return (
-    <NotebookDetailShell
-      notebook={notebook}
-      initialSources={sources}
-      initialMessages={initialMessages}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <AppHeader title={notebook.title} />
+      <div className="min-h-0 flex-1">
+        <NotebookDetailShell
+          notebook={notebook}
+          initialSources={sources}
+          initialMessages={initialMessages}
+          initialNotes={notes}
+        />
+      </div>
+    </div>
   )
 }

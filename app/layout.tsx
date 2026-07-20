@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { Figtree, Geist_Mono } from "next/font/google";
+import { Nunito_Sans, Baloo_2, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
-const figtree = Figtree({
-  variable: "--font-figtree",
+const nunitoSans = Nunito_Sans({
+  variable: "--font-nunito-sans",
   subsets: ["latin"],
+  weight: ["400", "600", "700"],
+});
+
+const baloo2 = Baloo_2({
+  variable: "--font-baloo",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -25,7 +32,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de" className={`${figtree.variable} ${geistMono.variable}`}>
+    <html
+      lang="de"
+      className={`${nunitoSans.variable} ${baloo2.variable} ${geistMono.variable}`}
+    >
       <body className="antialiased">
         {children}
         <Toaster />

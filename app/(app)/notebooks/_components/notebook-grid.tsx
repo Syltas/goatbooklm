@@ -60,22 +60,35 @@ export function NotebookGrid({
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+    <div className="mx-auto max-w-6xl px-6 pt-10 pb-14">
+      <h1 className="mb-7 font-heading text-[34px] font-bold tracking-[-0.015em] text-foreground">
+        Willkommen zurück 👋
+      </h1>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          onClick={openCreateDialog}
+          className="h-10 gap-1.5 rounded-full pr-5 pl-4 text-[14.5px] font-bold"
+          data-test="notebooks-create-button"
+        >
+          <Plus /> Neu erstellen
+        </Button>
+
+        <div className="relative ml-auto">
+          <Search className="pointer-events-none absolute top-1/2 left-[14px] size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
             placeholder="Notizbücher durchsuchen"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="w-56 pl-8"
+            className="h-10 w-[260px] rounded-full border-border bg-card py-1 pr-4 pl-[38px] text-sm"
             data-test="notebooks-search-input"
           />
         </div>
 
         <div
-          className="flex items-center gap-0.5 rounded-lg border border-border p-0.5"
+          className="flex items-center gap-0.5 rounded-full border border-border bg-card p-[3px]"
           data-test="notebooks-view-toggle"
         >
           <Button
@@ -84,11 +97,14 @@ export function NotebookGrid({
             size="icon-sm"
             aria-pressed={view === "grid"}
             aria-label="Rasteransicht"
-            className={cn(view === "grid" && "bg-muted text-foreground")}
+            className={cn(
+              "size-8 rounded-full",
+              view === "grid" && "bg-muted text-foreground"
+            )}
             onClick={() => setView("grid")}
             data-test="notebooks-view-toggle-grid"
           >
-            <LayoutGrid />
+            <LayoutGrid size={15} />
           </Button>
           <Button
             type="button"
@@ -96,25 +112,19 @@ export function NotebookGrid({
             size="icon-sm"
             aria-pressed={view === "list"}
             aria-label="Listenansicht"
-            className={cn(view === "list" && "bg-muted text-foreground")}
+            className={cn(
+              "size-8 rounded-full",
+              view === "list" && "bg-muted text-foreground"
+            )}
             onClick={() => setView("list")}
             data-test="notebooks-view-toggle-list"
           >
-            <List />
+            <List size={15} />
           </Button>
         </div>
-
-        <Button
-          type="button"
-          onClick={openCreateDialog}
-          className="rounded-full"
-          data-test="notebooks-create-button"
-        >
-          <Plus /> Neu erstellen
-        </Button>
       </div>
 
-      <h2 className="mt-6 mb-4 text-xl font-medium text-foreground">
+      <h2 className="mt-9 mb-4 text-[15px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
         Zuletzt verwendet
       </h2>
 
@@ -131,7 +141,7 @@ export function NotebookGrid({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col divide-y divide-border rounded-xl border border-border">
+        <div className="flex flex-col rounded-[20px] border border-[#eceae4] bg-card p-1.5">
           <CreateNotebookRow onClick={openCreateDialog} />
           {filtered.map((notebook) => (
             <NotebookListRow

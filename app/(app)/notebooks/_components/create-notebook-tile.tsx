@@ -17,12 +17,12 @@ export function CreateNotebookCard({ onClick }: CreateNotebookTileProps) {
       type="button"
       onClick={onClick}
       data-test="notebooks-empty-cta"
-      className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+      className="flex min-h-[216px] flex-col items-center justify-center gap-3 rounded-[20px] border-[1.5px] border-dashed border-[#d9d5cd] text-muted-foreground transition-colors duration-150 hover:border-foreground hover:bg-white/60 hover:text-foreground"
     >
-      <span className="flex size-11 items-center justify-center rounded-full bg-muted">
-        <Plus className="size-5" />
+      <span className="flex size-11 items-center justify-center rounded-full border border-border bg-card">
+        <Plus className="size-[18px]" />
       </span>
-      <span className="text-sm font-medium">Neues Notizbuch erstellen</span>
+      <span className="text-sm font-bold">Neues Notizbuch</span>
     </button>
   )
 }
@@ -33,12 +33,12 @@ export function CreateNotebookRow({ onClick }: CreateNotebookTileProps) {
       type="button"
       onClick={onClick}
       data-test="notebooks-empty-cta"
-      className="flex items-center gap-3 px-4 py-3 text-left text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+      className="flex items-center gap-3.5 rounded-[14px] px-3.5 py-3 text-left text-muted-foreground hover:bg-background hover:text-foreground"
     >
-      <span className="flex size-8 items-center justify-center rounded-full bg-muted">
+      <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full border border-dashed border-[#d9d5cd]">
         <Plus className="size-4" />
       </span>
-      <span className="text-sm font-medium">Neues Notizbuch erstellen</span>
+      <span className="text-sm font-bold">Neues Notizbuch erstellen</span>
     </button>
   )
 }

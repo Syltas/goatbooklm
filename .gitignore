@@ -66,3 +66,6 @@ supabase/.branches
 
 # E2E screenshot artifacts
 /e2e/.artifacts/
+
+# Session transcripts / chat exports (working artifacts, not source)
+/chat-exports/

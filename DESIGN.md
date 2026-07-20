@@ -24,16 +24,16 @@ Notebook-Detail = **2 Arbeits-Panels in v1** + rechtes Studio-Panel **deferred**
 │   Rows        │  + Inline-Zitate [n]      │   Slides/     │
 │  ODER         │  + Composer unten         │   Mindmap =   │
 │  Reader-Mode: │                            │   Non-Goal).  │
-│   geöffnete   │  Zitat-Klick → Popover    │  v1: Panel    │
-│   Quelle als  │   am Zitat (Passage +     │   ausblendbar │
-│   Volltext,   │   'Quelle anzeigen')      │   / schmaler  │
+│   geöffnete   │  Hover [n] → Popover      │  v1: Panel    │
+│   Quelle als  │   (Passage). Klick [n] →  │   ausblendbar │
+│   Volltext,   │   Direktsprung in Reader. │   / schmaler  │
 │   gescrollt+  │                            │   Platzhalter │
 │   markiert    │                            │   'kommt bald'│
 └──────────────┴───────────────────────────┴──────────────┘
 ```
 
 - **Der Quellen-Text-Viewer (OV1) lebt IM linken Panel** (Reader-Mode), nicht als 3. Spalte. Die Sources-Liste toggelt zwischen Listen- und Reader-Ansicht (Zurück-Pfeil führt zur Liste).
-- **Zitat-Klick primär = Popover-Karte** direkt am `[n]` (Quellenname + zitierte Passage + „Quelle anzeigen"-Link). „Quelle anzeigen" öffnet die Quelle im linken Panel (Reader-Mode), scrollt zum Chunk, markiert ihn dezent.
+- **Zitat-Hover = Popover-Vorschau, Zitat-Klick = Direktsprung** (Design-Review 2026-07-20, ersetzt „Zitat-Klick primär = Popover-Karte" vom 2026-07-19): Hover über `[n]` (Desktop, Maus) öffnet eine Popover-Karte direkt am Zitat (Quellenname + Seite/Absatz-Locator + zitierte Passage + „Quelle anzeigen"-Link); ein Klick springt stattdessen direkt ins linke Panel (Reader-Mode), scrollt zum Chunk, markiert ihn dezent. Touch: Tap öffnet weiterhin das Popover, „Quelle anzeigen" bleibt dort der Sprungpfad.
 - **Studio-Panel rechts ist v1 Non-Goal** (Audio/Video/Präsentation kommen später). v1: entweder ausblenden (2-Panel) oder schmaler Platzhalter „Audio, Video & mehr — kommt bald". Layout so bauen, dass das dritte Panel später ohne Umbau andockt.
 - Panels durch 1px-Hairline getrennt, kein Schatten. Panels ein-/ausklappbar (Collapse-Icon oben rechts je Panel, wie im Original).
 
@@ -43,26 +43,28 @@ Kein Default-Stack (kein system-ui / Inter / Roboto / Arial als Primary). Google
 
 | Rolle | Schrift | Einsatz |
 |---|---|---|
-| UI + Lesetext | **Figtree** (variable, rounded-humanist) | ALLES: Nav, Chat, Quelltext-Reader, Listen |
+| UI + Lesetext | **Nunito Sans** (variable, 400/600/700, `--font-sans`) | Nav, Chat, Quelltext-Reader, Listen |
+| Headings/Wortmarke | **Baloo 2** (500/600/700, `--font-heading`) | Große Überschriften, Logo-Wortmarke — sparsam einsetzen |
 | Mono | **Geist Mono** | Chunk-Index, IDs, Code in Quellen |
 
-- Ein durchgehender Sans (wie NotebookLM). Kein Serif-Reading-Font — das war die falsche Fährte; echtes NotebookLM ist komplett sans.
+- Body durchgehend Nunito Sans (wie NotebookLM). Baloo 2 nur für große Headings + Wortmarke, kein Serif-Reading-Font.
 - Body ≥ 16px. Reader-Text 16px, line-height 1.6. Chat-Antwort 15–16px.
 - Skala (px): 12 · 13 · 14 · 16 · 18 · 22 · 28. Gewichte 400 / 500 / 600.
 
 ## Farbe (CSS-Variablen, light + dark)
 
-Sehr weiß/neutral. **Schwarz** als Primary-Aktion (wie NotebookLM-Pills). EIN restrained-Accent für Links/aktive States. Pastell nur für Notebook-Karten + spätere Studio-Kacheln. Kein Purple-Gradient-Slop.
+Warm-neutral (v2) statt kühlem Grau. **Warmes Fast-Schwarz** als Primary-Aktion (wie NotebookLM-Pills). EIN restrained-Accent für Links/aktive States. Pastell nur für Notebook-Karten + spätere Studio-Kacheln. Kein Purple-Gradient-Slop.
 
 ```css
 :root {
-  --bg:        #FFFFFF;  /* reinweiß, NotebookLM-luftig */
+  --bg:        #F6F5F1;  /* getönter App-Hintergrund, Panels schweben darauf */
   --surface:   #FFFFFF;
-  --surface-2: #F6F6F7;  /* Chat-Bubble, Hover, Suggested-Chips */
-  --border:    #E8E8EA;  /* 1px hairlines */
-  --text:      #1F1F1F;
-  --text-muted:#5F6368;  /* Sekundär, Meta, Zitat-Nummern */
-  --primary:   #1F1F1F;  /* schwarze Primary-Pill (Create new, Senden) */
+  --surface-2: #F1EFE9;  /* Chat-Bubble, Hover, Suggested-Chips */
+  --border:    #E7E4DE;  /* 1px hairlines */
+  --text:      #23211E;
+  --text-muted:#78736B;  /* Sekundär, Meta, Zitat-Nummern */
+  --text-faint:#A8A29B;  /* Platzhalter, Tertiärtext */
+  --primary:   #23211E;  /* Primary-Pill (Create new, Senden) */
   --primary-fg:#FFFFFF;
   --accent:    #2563EB;  /* flaches Blau — Links, aktive Source, Fokus-Ring, Citation-Chip-Text */
   --highlight: #FFF3BF;  /* dezenter Marker-Wash im Reader beim Zitat-Sprung */
@@ -74,7 +76,7 @@ Sehr weiß/neutral. **Schwarz** als Primary-Aktion (wie NotebookLM-Pills). EIN r
 @media (prefers-color-scheme: dark) {
   :root {
     --bg:#131314; --surface:#1E1F20; --surface-2:#28292A; --border:#3C4043;
-    --text:#E8EAED; --text-muted:#9AA0A6; --primary:#E8EAED; --primary-fg:#131314;
+    --text:#E8EAED; --text-muted:#9AA0A6; --text-faint:#6E6A64; --primary:#E8EAED; --primary-fg:#131314;
     --accent:#8AB4F8; --highlight:#5C4B1A; --danger:#F28B82; --ok:#81C995;
     --card-1:#3A2C2B; --card-2:#2B2E43; --card-3:#26382C; --card-4:#3B3524; --card-5:#33263E; --card-6:#233A38;
   }
@@ -89,8 +91,9 @@ Sehr weiß/neutral. **Schwarz** als Primary-Aktion (wie NotebookLM-Pills). EIN r
 ## Zitat-Darstellung (Signature — an echtem NotebookLM)
 
 - Inline im Chat: `[n]` als **kleine, dezente Chip/Superscript-Nummer** in `--text-muted`/`--accent`, im Textfluss (nicht als große Buttons). Semantisch `<button>` (a11y), aber visuell zurückhaltend.
-- Klick auf `[n]` → **Popover-Karte** direkt am Zitat: Quellenname (fett, klein) + zitierte Passage (2–4 Zeilen) + „Quelle anzeigen"-Link. Leichtgewichtig, schließt bei Klick daneben.
-- „Quelle anzeigen" → linkes Panel wechselt in Reader-Mode, scrollt zum `char_start`, `--highlight`-Wash über die Passage, kurzer Puls.
+- Hover auf `[n]` (Desktop, 350ms) → **Popover-Karte** direkt am Zitat: Quellenname (fett, klein) + Seite/Absatz-Locator + ggf. Bild-Miniatur (bei Bild-Quellen) + zitierte Passage (2–4 Zeilen) + „Quelle anzeigen"-Link. Leichtgewichtig, schließt 200ms nach Verlassen von Chip und Karte, oder bei Klick daneben/`Esc`.
+- Klick auf `[n]` (Desktop, Maus) → springt **direkt** in den Reader, ohne das Popover zu öffnen/toggeln. Auf Touch/Tastatur bleibt „Quelle anzeigen" im Popover der Sprungpfad (Design-Review 2026-07-20).
+- „Quelle anzeigen" bzw. der Direktsprung → linkes Panel wechselt in Reader-Mode, scrollt zum `char_start`, `--highlight`-Wash über die Passage, kurzer Puls.
 
 ## Spacing & Layout
 
