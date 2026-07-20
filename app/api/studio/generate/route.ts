@@ -3,6 +3,13 @@ import { generateObject, streamText } from "ai"
 import { after } from "next/server"
 
 import type { Json } from "@/lib/database.types"
+import { enqueueStudioAudioJob } from "@/lib/studio/audio-queue"
+import {
+  AUDIO_FORMAT_META,
+  parseAudioContent,
+  STALE_GENERATING_MINUTES_AUDIO,
+  type AudioFormat,
+} from "@/lib/studio/audio-schema"
 import {
   flashcardsContentSchema,
   quizContentSchema,
@@ -23,6 +30,7 @@ import {
   type ReportFormat,
 } from "@/lib/studio/schema"
 import { createStudioService } from "@/lib/studio/service"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
 /**
@@ -41,8 +49,13 @@ const STUDIO_MAX_OUTPUT_TOKENS = 8192
 const GENERIC_FAIL_MESSAGE =
   "Modell aktuell nicht verfügbar oder überlastet. Bitte erneut versuchen."
 
-function provisionalTitle(type: GeneratableType, format: ReportFormat | null): string {
-  if (type === "report" && format) return REPORT_FORMAT_META[format].label
+function provisionalTitle(type: GeneratableType, format: string | null): string {
+  if (type === "report" && format) {
+    return REPORT_FORMAT_META[format as ReportFormat].label
+  }
+  if (type === "audio" && format) {
+    return AUDIO_FORMAT_META[format as AudioFormat].label
+  }
   return STUDIO_TYPE_META[type].label
 }
 
@@ -81,7 +94,7 @@ export async function POST(request: Request) {
 
   let artifactId: string
   let type: GeneratableType
-  let format: ReportFormat | null
+  let format: string | null
   let sources: ContextSource[]
 
   if ("retryArtifactId" in input) {
@@ -89,38 +102,47 @@ export async function POST(request: Request) {
     if (!existing || existing.notebook_id !== input.notebookId) {
       return textError("Artefakt nicht gefunden.", 404)
     }
-    if (existing.type === "audio") {
-      // Audio läuft später über die pgmq-Pipeline, nicht über diese Route.
-      return textError("Dieser Artefakt-Typ kann hier nicht neu erstellt werden.", 422)
-    }
     type = existing.type as GeneratableType
-    format = (existing.format as ReportFormat | null) ?? null
+    format = existing.format
 
-    // Retry behält die damals gewählten Quellen (Schnittmenge mit noch
-    // ready-Quellen); ist davon nichts mehr übrig, greift der
-    // Alle-Quellen-Fallback, bevor 422 kommt.
-    sources = await service.loadReadySources(
-      input.notebookId,
-      existing.source_ids.length > 0 ? existing.source_ids : undefined
-    )
-    if (sources.length === 0) {
-      sources = await service.loadReadySources(input.notebookId)
-    }
-    if (sources.length === 0) {
-      return textError(
-        "Keine verarbeitete Quelle mit Inhalt vorhanden. Füge zuerst eine Quelle hinzu.",
-        422
+    // Audio in der TTS-Phase behält seinen Quellen-Snapshot — das bezahlte
+    // Skript basiert darauf (Spec Retry-Anpassung). Alle anderen Fälle
+    // (inkl. Audio in der Skript-Phase) laden frisch: Schnittmenge mit noch
+    // ready-Quellen, sonst Alle-Quellen-Fallback.
+    const audioPhase =
+      type === "audio" ? parseAudioContent(existing.content)?.phase : undefined
+    const keepSnapshot = type === "audio" && audioPhase === "tts"
+
+    if (keepSnapshot) {
+      sources = []
+    } else {
+      sources = await service.loadReadySources(
+        input.notebookId,
+        existing.source_ids.length > 0 ? existing.source_ids : undefined
       )
+      if (sources.length === 0) {
+        sources = await service.loadReadySources(input.notebookId)
+      }
+      if (sources.length === 0) {
+        return textError(
+          "Keine verarbeitete Quelle mit Inhalt vorhanden. Füge zuerst eine Quelle hinzu.",
+          422
+        )
+      }
     }
 
     // Retry-Guard: nur `failed` oder stale-`generating` (updated_at älter
-    // als das Backstop-Fenster) darf zurückgesetzt werden — 0 getroffene
-    // Rows heißt "läuft noch" → 409, nichts wird geclobbert.
+    // als das Backstop-Fenster; Audio: 15 min, Inline-Typen: 5 min) darf
+    // zurückgesetzt werden — 0 getroffene Rows heißt "läuft noch" → 409.
     const claimed = await service.claimRetry({
       artifactId: existing.id,
       notebookId: input.notebookId,
-      sourceIds: sources.map((source) => source.id),
+      sourceIds: keepSnapshot
+        ? existing.source_ids
+        : sources.map((source) => source.id),
       provisionalTitle: provisionalTitle(type, format),
+      preserveContent: type === "audio",
+      staleMinutes: type === "audio" ? STALE_GENERATING_MINUTES_AUDIO : undefined,
     })
     if (!claimed) {
       return textError("Dieses Artefakt wird gerade erstellt.", 409)
@@ -128,7 +150,16 @@ export async function POST(request: Request) {
     artifactId = claimed.id
   } else {
     type = input.type
-    format = input.type === "report" ? input.format : null
+    format =
+      input.type === "report" || input.type === "audio" ? input.format : null
+
+    if (input.type === "audio" && !process.env.ELEVENLABS_API_KEY) {
+      // Fail-closed VOR jedem Insert/Enqueue (Spec Key-Gate).
+      return textError(
+        "Audio-Erzeugung ist nicht konfiguriert (ELEVENLABS_API_KEY fehlt).",
+        503
+      )
+    }
 
     // Auswahl aus dem Create-Dialog; leere/fehlende Auswahl = alle
     // ready-Quellen. Fremde IDs fallen als Schnittmenge einfach raus.
@@ -147,8 +178,38 @@ export async function POST(request: Request) {
       format,
       provisionalTitle: provisionalTitle(type, format),
       sourceIds: sources.map((source) => source.id),
+      initialContent:
+        input.type === "audio"
+          ? {
+              params: {
+                language: input.language,
+                length: input.length,
+                ...(input.focus?.trim() ? { focus: input.focus.trim() } : {}),
+              },
+              phase: "script",
+            }
+          : undefined,
     })
     artifactId = artifact.id
+  }
+
+  // -------------------------------------------------------------------------
+  // Audio: kein Inline-Pfad — Job in die pgmq-Queue (Admin-Client, RPC ist
+  // service_role-only; Ownership wurde oben RLS-scoped geprüft), der
+  // pg_cron-Worker übernimmt. Panel-Poll zeigt die Phasen.
+  // -------------------------------------------------------------------------
+  if (type === "audio") {
+    try {
+      await enqueueStudioAudioJob(createAdminClient(), artifactId)
+    } catch (err) {
+      console.error("[studio] enqueue audio job failed", err)
+      await failSafely(service, artifactId)
+      return textError("Etwas ist schiefgelaufen. Bitte erneut versuchen.", 500)
+    }
+    return Response.json(
+      { artifactId },
+      { status: 202, headers: { "X-Artifact-Id": artifactId, "Cache-Control": "no-store" } }
+    )
   }
 
   const sourcesBlock = buildSourcesBlock(sources)

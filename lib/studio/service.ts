@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, Json } from "@/lib/database.types"
 
 import type { ContextSource } from "./context"
-import type { GeneratableType, ReportFormat } from "./schema"
+import type { GeneratableType } from "./schema"
 
 export type StudioArtifact = Database["public"]["Tables"]["studio_artifacts"]["Row"]
 
@@ -90,10 +90,12 @@ class StudioService {
     notebookId: string
     userId: string
     type: GeneratableType
-    /** Nur für `type='report'` (DB-Constraint `report_requires_format`). */
-    format: ReportFormat | null
+    /** Für report + audio Pflicht (DB-Constraint `studio_artifacts_requires_format`). */
+    format: string | null
     provisionalTitle: string
     sourceIds: string[]
+    /** Audio startet mit `{params, phase: "script"}` (Phasen-Lifecycle). */
+    initialContent?: Json
   }): Promise<StudioArtifact> {
     const { data, error } = await this.client
       .from("studio_artifacts")
@@ -105,6 +107,7 @@ class StudioService {
         title: input.provisionalTitle,
         status: "generating",
         source_ids: input.sourceIds,
+        content: input.initialContent ?? null,
       })
       .select()
       .single()
@@ -136,19 +139,33 @@ class StudioService {
     notebookId: string
     sourceIds: string[]
     provisionalTitle: string
+    /** Audio: Phasen-Zwischenstand + bezahltes Skript NIE wegwerfen
+     *  (docs/specs/studio-audio.md, Retry-Anpassung). */
+    preserveContent?: boolean
+    /** Audio nutzt das 15-min-Fenster (`STALE_GENERATING_MINUTES_AUDIO`) —
+     *  Jobs überspannen legal mehrere Worker-Ticks (Review-Fix R1-2). */
+    staleMinutes?: number
   }): Promise<StudioArtifact | null> {
     const staleCutoff = new Date(
-      Date.now() - STALE_GENERATING_MINUTES * 60_000
+      Date.now() - (input.staleMinutes ?? STALE_GENERATING_MINUTES) * 60_000
     ).toISOString()
+    const updatePayload = input.preserveContent
+      ? {
+          status: "generating",
+          error_message: null,
+          title: input.provisionalTitle,
+          source_ids: input.sourceIds,
+        }
+      : {
+          status: "generating",
+          content: null,
+          error_message: null,
+          title: input.provisionalTitle,
+          source_ids: input.sourceIds,
+        }
     const { data, error } = await this.client
       .from("studio_artifacts")
-      .update({
-        status: "generating",
-        content: null,
-        error_message: null,
-        title: input.provisionalTitle,
-        source_ids: input.sourceIds,
-      })
+      .update(updatePayload)
       .eq("id", input.artifactId)
       .eq("notebook_id", input.notebookId)
       .or(`status.eq.failed,and(status.eq.generating,updated_at.lt.${staleCutoff})`)

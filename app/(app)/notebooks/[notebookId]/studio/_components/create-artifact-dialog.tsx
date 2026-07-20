@@ -11,6 +11,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  AUDIO_FORMAT_META,
+  AUDIO_FORMAT_VALUES,
+  AUDIO_LANGUAGES,
+  AUDIO_LENGTH_META,
+  AUDIO_LENGTH_VALUES,
+  type AudioFormat,
+  type AudioLength,
+} from "@/lib/studio/audio-schema"
 import { REPORT_FORMAT_META, STUDIO_TYPE_META } from "@/lib/studio/format-meta"
 import {
   REPORT_FORMAT_VALUES,
@@ -21,11 +31,17 @@ import {
 import type { SourceWithChunkCount } from "../../sources/types"
 import { SourcePicker } from "./source-picker"
 
-export interface CreateArtifactRequest {
-  type: GeneratableType
-  format?: ReportFormat
-  sourceIds: string[]
-}
+export type CreateArtifactRequest =
+  | { type: "report"; format: ReportFormat; sourceIds: string[] }
+  | { type: "flashcards" | "quiz"; sourceIds: string[] }
+  | {
+      type: "audio"
+      format: AudioFormat
+      language: string
+      length: AudioLength
+      focus?: string
+      sourceIds: string[]
+    }
 
 interface CreateArtifactDialogProps {
   /** Welche Kachel geklickt wurde — `null` = Dialog zu. */
@@ -37,9 +53,10 @@ interface CreateArtifactDialogProps {
 }
 
 /**
- * Create-Dialog für alle Studio-Artefakte: Reports wählen zusätzlich eines
- * der 3 festen Formate, alle Typen wählen ihre Quellen (alle vorausgewählt
- * — User-Vorgabe: Quellen-Auswahl ja, sonst keine Feinjustierung).
+ * Create-Dialog für alle Studio-Artefakte. Reports wählen eines der 3
+ * Text-Formate; Audio (docs/specs/studio-audio.md, NotebookLM-Customize-
+ * Parität) wählt Format/Sprache/Länge/Fokus; alle Typen wählen ihre Quellen
+ * (alle vorausgewählt — sonst keine Feinjustierung, User-Vorgabe).
  */
 export function CreateArtifactDialog({
   type,
@@ -48,14 +65,22 @@ export function CreateArtifactDialog({
   onCreate,
 }: CreateArtifactDialogProps) {
   const [format, setFormat] = useState<ReportFormat>("briefing_doc")
+  const [audioFormat, setAudioFormat] = useState<AudioFormat>("deep_dive")
+  const [language, setLanguage] = useState<string>("de")
+  const [length, setLength] = useState<AudioLength>("standard")
+  const [focus, setFocus] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Bei jedem Öffnen (Kachel-Klick) frisch: alle Quellen vorausgewählt,
-  // Format zurück auf Default.
+  // Optionen zurück auf Defaults.
   useEffect(() => {
     if (type === null) return
     setSelectedIds(new Set(readySources.map((source) => source.id)))
     setFormat("briefing_doc")
+    setAudioFormat("deep_dive")
+    setLanguage("de")
+    setLength("standard")
+    setFocus("")
     // `readySources` absichtlich nicht in den Deps: die Auswahl soll beim
     // ÖFFNEN einrasten, nicht bei jedem 2s-Poll-Refresh zurückspringen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,11 +103,21 @@ export function CreateArtifactDialog({
 
   function handleCreate() {
     if (!type) return
-    onCreate({
-      type,
-      format: type === "report" ? format : undefined,
-      sourceIds: [...selectedIds],
-    })
+    const sourceIds = [...selectedIds]
+    if (type === "report") {
+      onCreate({ type, format, sourceIds })
+    } else if (type === "audio") {
+      onCreate({
+        type,
+        format: audioFormat,
+        language,
+        length,
+        focus: focus.trim() || undefined,
+        sourceIds,
+      })
+    } else {
+      onCreate({ type, sourceIds })
+    }
   }
 
   return (
@@ -124,6 +159,93 @@ export function CreateArtifactDialog({
                 </button>
               )
             })}
+          </div>
+        )}
+
+        {type === "audio" && !noSources && (
+          <div className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {AUDIO_FORMAT_VALUES.map((value) => {
+                const formatMeta = AUDIO_FORMAT_META[value]
+                const active = audioFormat === value
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setAudioFormat(value)}
+                    aria-pressed={active}
+                    className={`flex flex-col items-start gap-1 rounded-xl p-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${
+                      active
+                        ? "bg-[var(--card-4)] ring-1 ring-[var(--action)]"
+                        : "bg-[var(--surface-2)] hover:bg-border/60"
+                    }`}
+                    data-test={`create-audio-format-${value}`}
+                  >
+                    <span className="text-sm font-medium text-foreground">
+                      {formatMeta.label}
+                    </span>
+                    <span className="text-xs leading-relaxed text-muted-foreground">
+                      {formatMeta.description}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Sprache
+                <select
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value)}
+                  className="h-9 rounded-lg border border-border bg-[var(--surface)] px-2.5 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  data-test="create-audio-language"
+                >
+                  {AUDIO_LANGUAGES.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Länge
+                <div className="flex overflow-hidden rounded-lg border border-border">
+                  {AUDIO_LENGTH_VALUES.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setLength(value)}
+                      aria-pressed={length === value}
+                      className={`px-3 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${
+                        length === value
+                          ? "bg-foreground text-background"
+                          : "bg-[var(--surface)] text-foreground hover:bg-muted/40"
+                      }`}
+                      data-test={`create-audio-length-${value}`}
+                    >
+                      {AUDIO_LENGTH_META[value].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              Worauf sollen die Hosts eingehen?
+              <Textarea
+                value={focus}
+                onChange={(event) => setFocus(event.target.value)}
+                maxLength={500}
+                rows={3}
+                placeholder={
+                  "Dinge zum Ausprobieren:\n• Eine bestimmte Quelle fokussieren\n• Ein bestimmtes Thema vertiefen\n• Für eine Zielgruppe erklären („erkläre es Einsteigern“)"
+                }
+                className="text-sm"
+                data-test="create-audio-focus"
+              />
+            </label>
           </div>
         )}
 

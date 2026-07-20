@@ -40,4 +40,8 @@ export const STUDIO_TYPE_META: Record<
     label: "Quiz",
     description: "Multiple-Choice mit Erklärungen",
   },
+  audio: {
+    label: "Audio",
+    description: "Gesprochener Beitrag aus deinen Quellen",
+  },
 }

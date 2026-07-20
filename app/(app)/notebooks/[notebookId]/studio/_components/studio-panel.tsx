@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  AudioLines,
   FileText,
   HelpCircle,
   Loader2,
@@ -21,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { parseAudioContent, STALE_GENERATING_MINUTES_AUDIO } from "@/lib/studio/audio-schema"
 import {
   parseFlashcardsContent,
   parseQuizContent,
@@ -36,6 +38,7 @@ import { STALE_GENERATING_MINUTES, type StudioArtifact } from "@/lib/studio/serv
 import { createClient } from "@/lib/supabase/client"
 
 import type { SourceWithChunkCount } from "../../sources/types"
+import { AudioViewer } from "./audio-viewer"
 import {
   CreateArtifactDialog,
   type CreateArtifactRequest,
@@ -60,6 +63,7 @@ const TYPE_ICON: Record<GeneratableType, typeof FileText> = {
   report: FileText,
   flashcards: WalletCards,
   quiz: HelpCircle,
+  audio: AudioLines,
 }
 
 /** Pastell-Kacheln gem. DESIGN.md (card-Paletten nur für Grid + Studio-Kacheln). */
@@ -67,16 +71,29 @@ const TYPE_TILE_BG: Record<GeneratableType, string> = {
   report: "bg-[var(--card-2)]",
   flashcards: "bg-[var(--card-5)]",
   quiz: "bg-[var(--card-6)]",
+  audio: "bg-[var(--card-4)]",
 }
 
 /** Backstop (Spec): `generating` älter als das Stale-Fenster (updated_at)
- *  gilt als abgestürzt und wird als fehlgeschlagen angezeigt — Retry-fähig. */
+ *  gilt als abgestürzt und wird als fehlgeschlagen angezeigt — Retry-fähig.
+ *  Audio: 15 min (Jobs überspannen legal mehrere Worker-Ticks), sonst 5. */
 function isStaleGenerating(artifact: StudioArtifact): boolean {
+  const windowMinutes =
+    artifact.type === "audio" ? STALE_GENERATING_MINUTES_AUDIO : STALE_GENERATING_MINUTES
   return (
     artifact.status === "generating" &&
-    Date.now() - Date.parse(artifact.updated_at) >
-      STALE_GENERATING_MINUTES * 60_000
+    Date.now() - Date.parse(artifact.updated_at) > windowMinutes * 60_000
   )
+}
+
+/** Phasen-Text der generating-Row (Audio zeigt echten Fortschritt). */
+function generatingLabel(artifact: StudioArtifact): string {
+  if (artifact.type !== "audio") return "Wird erstellt…"
+  const content = parseAudioContent(artifact.content)
+  if (content?.phase === "tts" && content.tts) {
+    return `Audio wird erzeugt… ${content.tts.done}/${content.tts.total}`
+  }
+  return "Skript wird geschrieben…"
 }
 
 function reportMarkdown(artifact: StudioArtifact): string {
@@ -251,15 +268,12 @@ export function StudioPanel({ notebookId, sources, onExplain }: StudioPanelProps
   }
 
   function handleCreate(request: CreateArtifactRequest) {
-    const body = {
-      type: request.type,
-      format: request.format,
-      sourceIds: request.sourceIds,
-    }
     if (request.type === "report") {
-      void startReportStream(body, request.format ?? "briefing_doc")
+      void startReportStream({ ...request }, request.format)
     } else {
-      void startObjectGeneration(body)
+      // Flashcards/Quiz (inline 202) und Audio (Queue 202) teilen den Pfad:
+      // Response trägt die Artefakt-ID, der Panel-Poll übernimmt.
+      void startObjectGeneration({ ...request })
     }
   }
 
@@ -399,6 +413,18 @@ export function StudioPanel({ notebookId, sources, onExplain }: StudioPanelProps
             onExplain={onExplain}
           />
         ) : null
+      } else if (artifact.type === "audio") {
+        const content = parseAudioContent(artifact.content)
+        viewer =
+          content?.storage_path && content.script ? (
+            <AudioViewer
+              title={artifact.title}
+              storagePath={content.storage_path}
+              script={content.script}
+              onBack={onBack}
+              menu={menu}
+            />
+          ) : null
       }
 
       if (viewer === null) {
@@ -429,7 +455,7 @@ export function StudioPanel({ notebookId, sources, onExplain }: StudioPanelProps
 
   return (
     <div className="flex h-full flex-col" data-test="studio-panel">
-      <div className="grid shrink-0 grid-cols-3 gap-2 p-3">
+      <div className="grid shrink-0 grid-cols-2 gap-2 p-3">
         {GENERATABLE_TYPE_VALUES.map((type) => {
           const Icon = TYPE_ICON[type]
           return (
@@ -503,7 +529,7 @@ export function StudioPanel({ notebookId, sources, onExplain }: StudioPanelProps
                       data-test="artifact-status-badge"
                     >
                       <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                      Wird erstellt…
+                      {generatingLabel(artifact)}
                     </p>
                   ) : failed ? (
                     <p

@@ -23,7 +23,7 @@ test.describe("studio reports end-to-end", () => {
 
     const notebookTitle = `E2E Studio ${Date.now()}`
     await notebooks.createNotebook(notebookTitle)
-    const notebookId = await notebooks.soleNotebookId()
+    const notebookId = await notebooks.notebookIdByTitle(notebookTitle)
     await notebooks.openNotebook(notebookId)
     await page.waitForURL(`**/notebooks/${notebookId}`)
 

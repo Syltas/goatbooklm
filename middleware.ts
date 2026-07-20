@@ -9,19 +9,19 @@ import { updateSession } from "@/lib/supabase/middleware"
 const PUBLIC_PATHS = new Set(["/", "/login", "/signup"])
 
 /**
- * The ingestion worker Route Handler (specs/02-ingestion.md §9) is called
- * exclusively by pg_cron/pg_net — zero cookies, zero Supabase session,
- * ever. It authenticates itself via a constant-time `x-worker-secret`
- * header check inside the route handler. Without this exemption, this
- * middleware's user-session redirect below would 307 every cron tick to
- * `/login` before the route handler's own auth check ever runs, so the
- * worker would never actually process a job.
+ * Worker Route Handlers, exclusively called by pg_cron/pg_net — zero
+ * cookies, zero Supabase session, ever. They authenticate themselves via a
+ * constant-time `x-worker-secret` header check inside the route handler.
+ * Without this exemption, this middleware's user-session redirect below
+ * would 307 every cron tick to `/login` before the route handler's own
+ * auth check ever runs, so the worker would never actually process a job.
+ * (ingestion: specs/02-ingestion.md §9; studio-audio: docs/specs/studio-audio.md)
  */
-const WORKER_ROUTE_PATH = "/api/ingestion-worker"
+const WORKER_ROUTE_PATHS = new Set(["/api/ingestion-worker", "/api/studio-worker"])
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.has(pathname)) return true
-  if (pathname === WORKER_ROUTE_PATH) return true
+  if (WORKER_ROUTE_PATHS.has(pathname)) return true
   // Email confirmation / OTP callback routes — hit by an unauthenticated
   // visitor following a link from their inbox.
   if (pathname.startsWith("/auth/")) return true

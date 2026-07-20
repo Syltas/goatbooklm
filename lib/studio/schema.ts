@@ -1,5 +1,11 @@
 import { z } from "zod"
 
+import {
+  AUDIO_FORMAT_VALUES,
+  AUDIO_LANGUAGE_CODES,
+  AUDIO_LENGTH_VALUES,
+} from "./audio-schema"
+
 /**
  * Report-Formate (docs/specs/studio-quick-wins.md): exakt 3 feste Formate,
  * keine Suggestions, kein "Create Your Own". Die Zod-Enum ist die eine
@@ -14,8 +20,9 @@ export const REPORT_FORMAT_VALUES = [
 
 export type ReportFormat = (typeof REPORT_FORMAT_VALUES)[number]
 
-/** Generierbare Artefakt-Typen (Audio kommt später über pgmq, nicht diese Route). */
-export const GENERATABLE_TYPE_VALUES = ["report", "flashcards", "quiz"] as const
+/** Generierbare Artefakt-Typen. Audio läuft asynchron über die pgmq-Queue
+ *  (docs/specs/studio-audio.md), die anderen inline über dieselbe Route. */
+export const GENERATABLE_TYPE_VALUES = ["report", "flashcards", "quiz", "audio"] as const
 
 export type GeneratableType = (typeof GENERATABLE_TYPE_VALUES)[number]
 
@@ -37,6 +44,15 @@ export const generateArtifactSchema = z.union([
   z.object({
     notebookId: z.uuid("Ungültige Notizbuch-ID"),
     type: z.enum(["flashcards", "quiz"]),
+    sourceIds: z.array(z.uuid()).optional(),
+  }),
+  z.object({
+    notebookId: z.uuid("Ungültige Notizbuch-ID"),
+    type: z.literal("audio"),
+    format: z.enum(AUDIO_FORMAT_VALUES),
+    language: z.enum(AUDIO_LANGUAGE_CODES),
+    length: z.enum(AUDIO_LENGTH_VALUES),
+    focus: z.string().trim().max(500, "Fokus darf höchstens 500 Zeichen lang sein").optional(),
     sourceIds: z.array(z.uuid()).optional(),
   }),
   z.object({

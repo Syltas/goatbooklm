@@ -176,7 +176,6 @@ export type Database = {
       }
       sources: {
         Row: {
-          content_hash: string | null
           content_text: string | null
           created_at: string
           error_message: string | null
@@ -191,7 +190,6 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          content_hash?: string | null
           content_text?: string | null
           created_at?: string
           error_message?: string | null
@@ -206,7 +204,6 @@ export type Database = {
           user_id: string
         }
         Update: {
-          content_hash?: string | null
           content_text?: string | null
           created_at?: string
           error_message?: string | null
@@ -283,13 +280,39 @@ export type Database = {
           },
         ]
       }
+      studio_worker_config: {
+        Row: {
+          created_at: string
+          id: boolean
+          secret: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: boolean
+          secret: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: boolean
+          secret?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       delete_ingestion_job: { Args: { msg_id: number }; Returns: boolean }
+      delete_studio_audio_job: { Args: { msg_id: number }; Returns: boolean }
       enqueue_ingestion_job: { Args: { payload: Json }; Returns: number }
+      enqueue_studio_audio_job: { Args: { payload: Json }; Returns: number }
       match_chunks: {
         Args: {
           p_match_count: number
@@ -307,6 +330,16 @@ export type Database = {
         }[]
       }
       read_ingestion_jobs: {
+        Args: { p_qty?: number; p_vt?: number }
+        Returns: {
+          enqueued_at: string
+          message: Json
+          msg_id: number
+          read_ct: number
+          vt: string
+        }[]
+      }
+      read_studio_audio_jobs: {
         Args: { p_qty?: number; p_vt?: number }
         Returns: {
           enqueued_at: string

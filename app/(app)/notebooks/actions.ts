@@ -18,6 +18,35 @@ function getErrorMessage(error: unknown) {
   return toGermanErrorMessage(error, "notebooks-action")
 }
 
+/** Alle studio-audio-Objekte der Audio-Artefakte eines Notebooks (finale
+ *  MP3s + evtl. liegengebliebene Segmente) — RLS-scoped gelesen. */
+async function collectStudioAudioPaths(
+  client: Awaited<ReturnType<typeof createClient>>,
+  notebookId: string,
+  userId: string
+): Promise<string[]> {
+  const { data: rows, error } = await client
+    .from("studio_artifacts")
+    .select("id, content")
+    .eq("notebook_id", notebookId)
+    .eq("type", "audio")
+  if (error || !rows) return []
+
+  const paths: string[] = []
+  for (const row of rows) {
+    const storagePath = (row.content as { storage_path?: string } | null)?.storage_path
+    if (storagePath) paths.push(storagePath)
+    const segmentPrefix = `${userId}/${row.id}/segments`
+    const { data: segments } = await client.storage
+      .from("studio-audio")
+      .list(segmentPrefix)
+    for (const object of segments ?? []) {
+      paths.push(`${segmentPrefix}/${object.name}`)
+    }
+  }
+  return paths
+}
+
 export const createNotebookAction = enhanceAction(
   async (data, user): Promise<ActionResult<Notebook>> => {
     const client = await createClient()
@@ -73,8 +102,21 @@ export const deleteNotebookAction = enhanceAction(
         notebookId: data.id,
         userId: user.id,
       })
+      // Gleiches L1-Ordering für Audio-Artefakte (docs/specs/studio-audio.md,
+      // Review-Fix R1-5): studio-audio-Pfade einsammeln, solange die
+      // studio_artifacts-Rows noch existieren; gelöscht wird erst nach dem
+      // DB-Delete, best-effort.
+      const audioPaths = await collectStudioAudioPaths(client, data.id, user.id)
       await service.delete(data.id, user.id)
       await ingestionService.deleteStorageObjects(storagePaths)
+      if (audioPaths.length > 0) {
+        const { error: audioCleanupError } = await client.storage
+          .from("studio-audio")
+          .remove(audioPaths)
+        if (audioCleanupError) {
+          console.error("[delete-notebook] studio-audio cleanup failed", audioCleanupError)
+        }
+      }
       revalidatePath("/notebooks")
       revalidatePath("/notebooks/[notebookId]", "page")
       return { data: { success: true } }

@@ -14,7 +14,7 @@ export class StudioPanelPage {
     return this.page.getByTestId("studio-panel")
   }
 
-  createTile(type: "report" | "flashcards" | "quiz"): Locator {
+  createTile(type: "report" | "flashcards" | "quiz" | "audio"): Locator {
     return this.page.getByTestId(`studio-create-${type}-tile`)
   }
 
