@@ -58,3 +58,11 @@ supabase/.branches
 
 # Separate prod-build output (never clobbers dev .next)
 /.next-build/
+
+# Screenshots (annotation captures, QA artifacts, design references).
+# The two mockups under docs/design/ were committed before this rule and stay
+# tracked; `.gitignore` only affects files git does not already know about.
+*.png
+
+# E2E screenshot artifacts
+/e2e/.artifacts/

@@ -59,7 +59,10 @@ export function MessageItem({ message, isStreaming, onCite }: MessageItemProps) 
 
   return (
     <div className="flex flex-col items-start gap-1.5" data-test="chat-message" data-role="assistant">
-      <div className="max-w-[85%] text-[15px] leading-[1.6] whitespace-pre-wrap text-foreground">
+      {/* No `whitespace-pre-wrap` here — `CitationRender` emits real block
+          elements now, and preserving the source newlines on top of that
+          double-spaces every paragraph. */}
+      <div className="max-w-[85%] text-[15px] leading-[1.6] text-foreground">
         <CitationRender content={content} citations={citations} onCite={onCite} />
         {isStreaming && (
           <span
