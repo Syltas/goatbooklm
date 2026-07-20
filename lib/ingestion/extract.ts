@@ -40,7 +40,19 @@ export async function extractPdfText(
   return { text, pageOffsets }
 }
 
-const SSRF_MESSAGE = "Diese URL ist nicht erlaubt."
+// Robustness fix: these three used to be a single `SSRF_MESSAGE` thrown for
+// every rejection reason alike (bad scheme, blocked address, AND a
+// transient DNS/network failure) — indistinguishable to the user, and a DNS
+// hiccup looked exactly like a deliberate security block with no hint that
+// retrying might just work. Byte-identical duplicates of
+// `messages.ts`'s `ssrfSchemeUnsupported`/`ssrfBlocked`/`ssrfDnsFailed` (not
+// imported — see that module's docstring on why client-safe messages live
+// zero-dependency there while this file pulls in `undici`/DNS); keep them in
+// sync, since `actions.ts`'s `KNOWN_INGESTION_MESSAGES` passthrough only
+// recognizes an error by exact string match.
+const SSRF_SCHEME_MESSAGE = "URL-Schema nicht unterstützt — nur http/https erlaubt."
+const SSRF_BLOCKED_MESSAGE = "Diese URL ist nicht erlaubt."
+const SSRF_DNS_MESSAGE = "Adresse konnte nicht aufgelöst werden — bitte später erneut versuchen."
 
 export interface SafeUrlResolution {
   /** Bare hostname (brackets stripped for an IPv6 literal). */
@@ -60,7 +72,12 @@ export interface SafeUrlResolution {
  * IPv4 and IPv6 ranges, and explicitly the cloud metadata endpoint
  * `169.254.169.254`. Rejects (fails closed) if ANY resolved address is
  * unsafe, even if that address wouldn't end up being the one connected to —
- * a mixed-safe/unsafe answer set is itself suspicious.
+ * a mixed-safe/unsafe answer set is itself suspicious. The rejection message
+ * differs by cause (`SSRF_SCHEME_MESSAGE`/`SSRF_BLOCKED_MESSAGE`/
+ * `SSRF_DNS_MESSAGE` below) so a transient DNS failure doesn't read as an
+ * indistinguishable security block to the user — the fail-closed *behavior*
+ * (nothing gets fetched) is identical across all three, only the string
+ * differs.
  *
  * Shared implementation behind both `assertSafeUrl` (pre-checks that don't
  * need the resolved IP, e.g. the create-time check before any row exists)
@@ -72,11 +89,11 @@ async function checkUrlSafety(url: string): Promise<SafeUrlResolution> {
   try {
     parsed = new URL(url)
   } catch {
-    throw new Error(SSRF_MESSAGE)
+    throw new Error(SSRF_SCHEME_MESSAGE)
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(SSRF_MESSAGE)
+    throw new Error(SSRF_SCHEME_MESSAGE)
   }
 
   // `URL#hostname` keeps the `[...]` brackets for IPv6 literals (e.g.
@@ -89,12 +106,12 @@ async function checkUrlSafety(url: string): Promise<SafeUrlResolution> {
       : rawHostname
 
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new Error(SSRF_MESSAGE)
+    throw new Error(SSRF_BLOCKED_MESSAGE)
   }
 
   // Hostname is already a literal IP — no DNS involved, check directly.
   if (isIP(hostname)) {
-    if (isBlockedIp(hostname)) throw new Error(SSRF_MESSAGE)
+    if (isBlockedIp(hostname)) throw new Error(SSRF_BLOCKED_MESSAGE)
     return { hostname, ips: [hostname] }
   }
 
@@ -103,13 +120,18 @@ async function checkUrlSafety(url: string): Promise<SafeUrlResolution> {
     records = await lookup(hostname, { all: true, verbatim: true })
   } catch {
     // Unresolvable hostname — fail closed rather than let a downstream
-    // fetch() attempt its own (unguarded) resolution.
-    throw new Error(SSRF_MESSAGE)
+    // fetch() attempt its own (unguarded) resolution. Distinct message from
+    // the blocked-address cases below: this is a transient DNS/network
+    // condition (worth retrying), not a deliberate security decision — but
+    // the *behavior* is identical either way (nothing gets fetched). No
+    // internal detail (the hostname, the DNS error) is included in the
+    // message itself.
+    throw new Error(SSRF_DNS_MESSAGE)
   }
 
-  if (records.length === 0) throw new Error(SSRF_MESSAGE)
+  if (records.length === 0) throw new Error(SSRF_DNS_MESSAGE)
   for (const record of records) {
-    if (isBlockedIp(record.address)) throw new Error(SSRF_MESSAGE)
+    if (isBlockedIp(record.address)) throw new Error(SSRF_BLOCKED_MESSAGE)
   }
 
   return { hostname, ips: records.map((record) => record.address) }
@@ -181,23 +203,173 @@ function isBlockedIpv4(ip: string): boolean {
   })
 }
 
+/**
+ * Expands an IPv6 literal to its 16 raw bytes, or `null` if it isn't one.
+ *
+ * WHY BYTES, NOT TEXT — do not replace this with prefix/regex matching on the
+ * address string. One IPv6 address has many equally valid spellings, and the
+ * caller never gets to choose which one arrives: WHATWG `new URL()`
+ * canonicalizes the host *before* this module sees it, collapsing any
+ * embedded dotted quad into hex hextets. `http://[::ffff:127.0.0.1]/` reaches
+ * us as `::ffff:7f00:1`, `http://[::ffff:169.254.169.254]/` as
+ * `::ffff:a9fe:a9fe`, and `0:0:0:0:0:ffff:7f00:1` collapses to the same thing
+ * again. A regex written against the dotted spelling matches none of them and
+ * is simply dead code on the URL path — which is exactly how a
+ * `/^::ffff:(\d+\.\d+\.\d+\.\d+)$/` branch here once let the cloud metadata
+ * endpoint through. Bytes are the one representation every spelling agrees
+ * on.
+ *
+ * Validation is delegated to `net.isIPv6` first, so this only has to expand a
+ * shape already known to be well-formed; anything it still can't expand
+ * returns `null` and the caller fails closed.
+ */
+function ipv6ToBytes(ip: string): Uint8Array | null {
+  // A zone id (`fe80::1%eth0`) is accepted by `net.isIPv6` but says nothing
+  // about *which* address this is — strip it so the address still classifies
+  // (a zone-suffixed link-local is precisely the shape an attacker would try).
+  const address = ip.toLowerCase().split("%")[0]
+  if (!isIPv6(address)) return null
+
+  const gapAt = address.indexOf("::")
+  const head = gapAt === -1 ? address : address.slice(0, gapAt)
+  const tail = gapAt === -1 ? "" : address.slice(gapAt + 2)
+
+  const hextetsOf = (segment: string): number[] | null => {
+    if (segment === "") return []
+    const groups = segment.split(":")
+    const out: number[] = []
+
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i]
+
+      // A trailing dotted quad (`::ffff:a.b.c.d`) occupies the final two
+      // hextets. Still handled even though `new URL()` never produces it,
+      // because DNS answers and `assertSafeUrl` callers can pass a raw
+      // literal that never went through URL parsing.
+      if (i === groups.length - 1 && group.includes(".")) {
+        const octets = group.split(".")
+        if (octets.length !== 4) return null
+        const values: number[] = []
+        for (const octet of octets) {
+          if (!/^\d{1,3}$/.test(octet)) return null
+          const value = Number(octet)
+          if (value > 255) return null
+          values.push(value)
+        }
+        out.push((values[0] << 8) | values[1], (values[2] << 8) | values[3])
+        continue
+      }
+
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return null
+      out.push(parseInt(group, 16))
+    }
+
+    return out
+  }
+
+  const headHextets = hextetsOf(head)
+  const tailHextets = hextetsOf(tail)
+  if (!headHextets || !tailHextets) return null
+
+  const gap = 8 - headHextets.length - tailHextets.length
+  if (gap < 0 || (gapAt === -1 && gap !== 0)) return null
+
+  const hextets = [
+    ...headHextets,
+    ...new Array<number>(gap).fill(0),
+    ...tailHextets,
+  ]
+  if (hextets.length !== 8) return null
+
+  const bytes = new Uint8Array(16)
+  hextets.forEach((hextet, i) => {
+    bytes[i * 2] = hextet >> 8
+    bytes[i * 2 + 1] = hextet & 0xff
+  })
+  return bytes
+}
+
+/** Parses a range literal at module load. A throw here is a typo in the
+ *  tables below, i.e. a programming error that must surface immediately
+ *  rather than silently degrade one range into "not blocked". */
+function prefixBytes(literal: string): Uint8Array {
+  const bytes = ipv6ToBytes(literal)
+  if (!bytes) throw new Error(`invalid IPv6 range literal: ${literal}`)
+  return bytes
+}
+
+function hasIpv6Prefix(bytes: Uint8Array, prefix: Uint8Array, bits: number): boolean {
+  const wholeBytes = bits >> 3
+  for (let i = 0; i < wholeBytes; i++) {
+    if (bytes[i] !== prefix[i]) return false
+  }
+  const remainingBits = bits & 7
+  if (remainingBits === 0) return true
+  const mask = (0xff << (8 - remainingBits)) & 0xff
+  return (bytes[wholeBytes] & mask) === (prefix[wholeBytes] & mask)
+}
+
+/** Ranges blocked outright, independent of anything they may embed. */
+const IPV6_BLOCKED_RANGES: [Uint8Array, number][] = [
+  [prefixBytes("::"), 128], // unspecified
+  [prefixBytes("::1"), 128], // loopback
+  // IPv4-compatible ::a.b.c.d — deprecated by RFC 4291 §2.5.5.1 and never a
+  // legitimate destination, so the whole /96 goes rather than only the
+  // embedded IPv4 (which would leave e.g. `::8.8.8.8` reachable through a
+  // deprecated, translator-ambiguous encoding). Note ::/96 does NOT overlap
+  // the IPv4-mapped range below: that one carries 0xffff in bytes 10-11.
+  [prefixBytes("::"), 96],
+  [prefixBytes("fc00::"), 7], // unique local
+  [prefixBytes("fe80::"), 10], // link local
+  [prefixBytes("fec0::"), 10], // site local (deprecated, RFC 3879)
+  [prefixBytes("ff00::"), 8], // multicast
+  [prefixBytes("100::"), 64], // discard-only (RFC 6666)
+  [prefixBytes("2001::"), 32], // Teredo — tunnels an operator-chosen IPv4 endpoint
+  [prefixBytes("2001:db8::"), 32], // documentation (RFC 3849)
+  // NAT64 local-use (RFC 8215). Blocked wholesale rather than unwrapped: the
+  // prefix may be any of RFC 6052's lengths, so the embedded IPv4 has no
+  // fixed byte offset to check. Nothing legitimate is served from here.
+  [prefixBytes("64:ff9b:1::"), 48],
+]
+
+/** Ranges that carry an IPv4 address inside them — the embedded octets must
+ *  clear the SAME `isBlockedIpv4` list a native IPv4 host would, otherwise
+ *  every entry in `IPV4_BLOCKED_RANGES` has a second, unguarded spelling. */
+const IPV6_EMBEDDED_IPV4_RANGES: {
+  prefix: Uint8Array
+  bits: number
+  /** Byte offset of the embedded IPv4 address within the 16 bytes. */
+  offset: number
+}[] = [
+  // IPv4-mapped ::ffff:a.b.c.d — the metadata-endpoint bypass this whole
+  // rewrite exists for (`::ffff:a9fe:a9fe` -> 169.254.169.254).
+  { prefix: prefixBytes("::ffff:0:0"), bits: 96, offset: 12 },
+  // IPv4-translated ::ffff:0:a.b.c.d (SIIT, RFC 2765).
+  { prefix: prefixBytes("::ffff:0:0:0"), bits: 96, offset: 12 },
+  // NAT64 well-known prefix (RFC 6052) — fixed /96, so the IPv4 is bytes 12-15.
+  { prefix: prefixBytes("64:ff9b::"), bits: 96, offset: 12 },
+  // 6to4 (RFC 3056): 2002:<IPv4>::/48 — the IPv4 sits in bytes 2-5.
+  { prefix: prefixBytes("2002::"), bits: 16, offset: 2 },
+]
+
+function ipv4At(bytes: Uint8Array, offset: number): string {
+  return `${bytes[offset]}.${bytes[offset + 1]}.${bytes[offset + 2]}.${bytes[offset + 3]}`
+}
+
 function isBlockedIpv6(ip: string): boolean {
-  const normalized = ip.toLowerCase()
+  const bytes = ipv6ToBytes(ip)
+  // Well-formed enough for `net.isIP` but not expandable here — fail closed
+  // rather than treat an address we couldn't classify as safe.
+  if (!bytes) return true
 
-  if (normalized === "::1" || normalized === "::") return true
-  // Unique local addresses fc00::/7 (fc.. / fd..).
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true
-  // Link-local fe80::/10 (first hextet fe80..febf).
-  if (/^fe[89ab]/.test(normalized)) return true
+  if (IPV6_BLOCKED_RANGES.some(([prefix, bits]) => hasIpv6Prefix(bytes, prefix, bits))) {
+    return true
+  }
 
-  // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible addresses — unwrap and
-  // re-check against the IPv4 blocklist, including 169.254.169.254.
-  const mapped = normalized.match(
-    /^::ffff:(\d+\.\d+\.\d+\.\d+)$/
+  return IPV6_EMBEDDED_IPV4_RANGES.some(
+    ({ prefix, bits, offset }) =>
+      hasIpv6Prefix(bytes, prefix, bits) && isBlockedIpv4(ipv4At(bytes, offset))
   )
-  if (mapped) return isBlockedIpv4(mapped[1])
-
-  return false
 }
 
 export interface FetchWebPageOptions {
