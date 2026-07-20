@@ -29,6 +29,26 @@ export default defineConfig({
   reporter: [["list"]],
   globalTeardown: "./e2e/support/global-teardown.ts",
 
+  // Per-TEST timeout — distinct from `webServer.timeout` below, which only
+  // bounds how long Playwright waits for the dev server to come up once, at
+  // the start of the whole run. Playwright's own default here is 30s, far
+  // too short: `e2e/sources/sources.spec.ts` calls
+  // `sources.waitForReady(90_000)` (real queue + worker + a real OpenAI
+  // embedding call) but never raises its own `test.setTimeout`, so the
+  // surrounding 30s default kills the test before that 90s budget can ever
+  // be spent — it currently only finishes in ~20s and stays green, which is
+  // exactly why this was a *latent* flake risk (an ingestion run running
+  // anywhere near its 90s ceiling would die from the outer test timeout,
+  // not from `waitForReady`'s own), not a currently-failing test.
+  // 120s = the 90s ingestion budget plus ~30s slack for the notebook
+  // create/open, form fill, reader open/close, delete-confirm, and cleanup
+  // steps either side of it — generous enough that a slow tick under load
+  // doesn't turn into a false failure. `e2e/chat/*.spec.ts` layer the same
+  // ingestion wait UNDER two real Claude calls, so they already raise their
+  // own budget further via `test.setTimeout(240_000)`; this is only the
+  // floor every other spec (this one included) needs.
+  timeout: 120_000,
+
   use: {
     baseURL: BASE_URL,
     testIdAttribute: "data-test",

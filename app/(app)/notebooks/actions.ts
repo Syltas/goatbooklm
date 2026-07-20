@@ -59,8 +59,8 @@ export const deleteNotebookAction = enhanceAction(
     const ingestionService = createIngestionService(createIngestionDeps(client))
 
     try {
-      // Storage-Cleanup (Spec 02 §9/§14, Eng-Review L1): read the PDF
-      // storage_paths BEFORE the notebook row (and its cascaded `sources`
+      // Storage-Cleanup (Spec 02 §9/§14, Eng-Review L1): read the
+      // storage_paths of every file-backed source BEFORE the notebook row (and its cascaded `sources`
       // rows) are deleted — the storage_path values are only readable while
       // those rows still exist — but only actually delete the Storage
       // objects AFTER the DB delete has succeeded. This ordering means a
@@ -69,7 +69,7 @@ export const deleteNotebookAction = enhanceAction(
       // row pointing at an already-deleted file. The Storage delete itself
       // is best-effort (logs per-object failures internally, never throws),
       // so it can't block the notebook deletion the user is waiting on.
-      const storagePaths = await ingestionService.getNotebookPdfStoragePaths({
+      const storagePaths = await ingestionService.getNotebookStoragePaths({
         notebookId: data.id,
         userId: user.id,
       })

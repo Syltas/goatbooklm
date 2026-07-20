@@ -23,10 +23,13 @@ interface SourcesPanelProps {
  * Body of the Sources-Panel (replaces the Spec 01 placeholder) — toggles
  * between Listen-Mode (default) and Reader-Mode of one open source
  * (specs/02-ingestion.md §16, AC-50/AC-51), driven by the shared
- * `useSourceReader()` context so a `openSource()` call from anywhere (a
- * row click here today; Spec 03's citation popover later) is reflected
+ * `useSourceReader()` context so an `openSource()` call from anywhere (a
+ * row click here, or a citation-chip jump from Chat, §Teil 5) is reflected
  * identically whether this instance is the desktop mount or the
- * mobile-sheet mount (`notebook-detail-shell.tsx` renders both).
+ * mobile-sheet mount (`notebook-detail-shell.tsx` renders both). `onBack`
+ * goes through `goBack()`, not `closeSource()` directly — see
+ * `source-reader-context.tsx`'s docstring for why a mis-jump needs to be
+ * undoable back to the PREVIOUS source, not just to the list.
  */
 export function SourcesPanel({
   notebookId,
@@ -34,8 +37,17 @@ export function SourcesPanel({
   onCreated,
   onDeleted,
 }: SourcesPanelProps) {
-  const { sourceId, charStart, charEnd, openSource, closeSource } =
-    useSourceReader()
+  const {
+    sourceId,
+    charStart,
+    charEnd,
+    restoreScrollTop,
+    canGoBack,
+    openSource,
+    closeSource,
+    goBack,
+    reportScroll,
+  } = useSourceReader()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [deletingSource, setDeletingSource] =
     useState<SourceWithChunkCount | null>(null)
@@ -53,21 +65,25 @@ export function SourcesPanel({
         source={openSourceRow}
         charStart={charStart}
         charEnd={charEnd}
-        onBack={closeSource}
+        restoreScrollTop={restoreScrollTop}
+        canGoBack={canGoBack}
+        onBack={goBack}
+        onScroll={reportScroll}
       />
     )
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-border p-3">
+      <div className="shrink-0 p-3">
         <Button
           type="button"
-          className="w-full rounded-full"
+          variant="outline"
+          className="h-[38px] w-full rounded-full border-border bg-transparent text-[14px] font-bold text-foreground hover:bg-background"
           onClick={() => setAddDialogOpen(true)}
           data-test="sources-add-button"
         >
-          <Plus /> Quellen hinzufügen
+          <Plus className="size-[15px]" /> Quellen hinzufügen
         </Button>
       </div>
 
@@ -79,17 +95,18 @@ export function SourcesPanel({
           </p>
           <Button
             type="button"
-            className="rounded-full"
+            variant="outline"
+            className="h-[38px] rounded-full border-border bg-transparent text-[14px] font-bold text-foreground hover:bg-background"
             onClick={() => setAddDialogOpen(true)}
             data-test="sources-empty-cta"
           >
-            <Plus /> Quellen hinzufügen
+            <Plus className="size-[15px]" /> Quellen hinzufügen
           </Button>
         </div>
       ) : (
         <SourceList
           sources={sources}
-          onOpen={(source) => openSource(source.id)}
+          onOpen={(source) => openSource(source.id, { sourceTitle: source.title })}
           onDeleteRequest={setDeletingSource}
         />
       )}

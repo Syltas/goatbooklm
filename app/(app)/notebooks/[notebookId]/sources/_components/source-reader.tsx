@@ -1,10 +1,11 @@
 "use client"
 
-import { ArrowLeft } from "lucide-react"
-import { useEffect, useMemo, useRef } from "react"
+import { ArrowLeft, ImageOff } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 
+import { getSourceImageUrlAction } from "../actions"
 import type { SourceWithChunkCount } from "../types"
 
 /**
@@ -96,22 +97,117 @@ function renderSegment(
   )
 }
 
+/**
+ * Image sources need the image itself above the text, because their
+ * `content_text` is not the source — it is a model-written description OF
+ * the source (see `lib/ingestion/extractors/image.ts`). Showing only that
+ * text would mean a citation click lands the user in generated prose with
+ * the actual evidence nowhere on screen, which is exactly the thing the
+ * reader exists to prevent.
+ *
+ * The file lives in a private bucket, so it is fetched through
+ * `getSourceImageUrlAction` — a Server Action that resolves the owner from
+ * the session and mints a short-lived signed URL. Nothing about the image is
+ * reachable without being its owner.
+ */
+function SourceImage({ sourceId }: { sourceId: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    setUrl(null)
+    setFailed(false)
+
+    getSourceImageUrlAction({ sourceId }).then((result) => {
+      // Guard against a resolved request for a source the user has already
+      // navigated away from — otherwise switching sources quickly can paint
+      // the previous source's image under the current source's description.
+      if (cancelled) return
+      if ("error" in result) setFailed(true)
+      else setUrl(result.data.url)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sourceId])
+
+  if (failed) {
+    return (
+      <div
+        className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-2.5 text-sm text-muted-foreground"
+        data-test="source-reader-image-error"
+      >
+        <ImageOff className="size-4 shrink-0" aria-hidden="true" />
+        Bild konnte nicht geladen werden.
+      </div>
+    )
+  }
+
+  if (!url) {
+    // Reserve space while the signed URL is in flight so the description
+    // below doesn't jump once the image lands.
+    return (
+      <div
+        className="mb-4 h-48 animate-pulse rounded-lg border border-border bg-secondary"
+        data-test="source-reader-image-loading"
+      />
+    )
+  }
+
+  // A plain `<img>`, not `next/image`: the source is a per-request signed
+  // Storage URL, which `next/image` cannot optimize usefully — it would need
+  // the Storage host in `images.remotePatterns`, and because the signature
+  // makes every URL unique the optimizer cache could never hit anyway.
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- see comment above
+    <img
+      src={url}
+      alt="Bildquelle"
+      className="mb-4 max-h-[60vh] w-full rounded-lg border border-border object-contain"
+      onError={() => setFailed(true)}
+      data-test="source-reader-image"
+    />
+  )
+}
+
 interface SourceReaderProps {
   source: SourceWithChunkCount
   charStart?: number
   charEnd?: number
+  /** Set only right after a `goBack()` (Design-Review 2026-07-20, §Teil 5
+   *  precondition) — restores the exact scroll position the user was at
+   *  before they navigated away, instead of the normal
+   *  scroll-to-highlight behavior below. `undefined` for a fresh
+   *  `openSource()` open (including the very first one). */
+  restoreScrollTop?: number
+  /** Whether `onBack` restores a PREVIOUS source rather than returning to
+   *  the list — only changes the button's `aria-label` so it says what it's
+   *  actually about to do. */
+  canGoBack: boolean
   onBack: () => void
+  /** Reports this container's `scrollTop` to `SourceReaderContext` on every
+   *  scroll, so a later `openSource`/`goBack` call can snapshot "where the
+   *  user was" onto its back-path entry. */
+  onScroll: (scrollTop: number) => void
 }
 
 export function SourceReader({
   source,
   charStart,
   charEnd,
+  restoreScrollTop,
+  canGoBack,
   onBack,
+  onScroll,
 }: SourceReaderProps) {
   const content = source.content_text ?? ""
   const segments = useMemo(() => segmentText(content), [content])
   const highlightRef = useRef<HTMLElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const isImage = source.type === "image"
 
   const hasHighlight =
     typeof charStart === "number" &&
@@ -119,6 +215,15 @@ export function SourceReader({
     charEnd > charStart
 
   useEffect(() => {
+    // A `goBack()` restore wins over the normal scroll-to-highlight: the
+    // point of the back-path is returning to where the user actually WAS,
+    // not re-centering on a citation they may have scrolled away from since.
+    // The `<mark>` (if `hasHighlight`) still renders either way — only the
+    // scroll target differs.
+    if (typeof restoreScrollTop === "number" && contentRef.current) {
+      contentRef.current.scrollTop = restoreScrollTop
+      return
+    }
     if (hasHighlight && highlightRef.current) {
       // AC-48 (Design-Review 2026-07-19): under `prefers-reduced-motion:
       // reduce`, the citation jump scrolls instantly instead of
@@ -135,7 +240,7 @@ export function SourceReader({
     // Deliberately re-runs only on source/offset changes, not on every
     // `segments` recompute.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source.id, charStart, charEnd])
+  }, [source.id, charStart, charEnd, restoreScrollTop])
 
   return (
     <div className="flex h-full flex-col" data-test="source-reader">
@@ -145,7 +250,7 @@ export function SourceReader({
           variant="ghost"
           size="icon-sm"
           onClick={onBack}
-          aria-label="Zurück zur Quellenliste"
+          aria-label={canGoBack ? "Zurück zur vorherigen Quelle" : "Zurück zur Quellenliste"}
           data-test="source-reader-back"
         >
           <ArrowLeft />
@@ -154,14 +259,29 @@ export function SourceReader({
       </div>
 
       <div
+        ref={contentRef}
+        onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
         className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-[15px] leading-[1.6] whitespace-pre-wrap text-foreground"
         data-test="source-reader-content"
       >
+        {isImage && <SourceImage sourceId={source.id} />}
+
+        {isImage && segments.length > 0 && (
+          <p className="mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+            Beschreibung
+          </p>
+        )}
+
         {segments.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Für diese Quelle ist noch kein Volltext verfügbar.
           </p>
         ) : (
+          // Unchanged for image sources: the description is segmented and
+          // `<mark>`-highlighted exactly like any other source's text, so a
+          // citation into an image's description still scrolls to and
+          // highlights the cited passage — it just now sits under the image
+          // it describes.
           segments.map((segment) => (
             <p key={segment.index} className="mb-4 [content-visibility:auto]">
               {renderSegment(segment, charStart, charEnd, highlightRef)}

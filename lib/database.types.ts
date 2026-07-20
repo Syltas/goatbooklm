@@ -152,6 +152,8 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          summary: string | null
+          summary_stale: boolean
           title: string
           updated_at: string
           user_id: string
@@ -160,6 +162,8 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          summary?: string | null
+          summary_stale?: boolean
           title: string
           updated_at?: string
           user_id: string
@@ -168,14 +172,55 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          summary?: string | null
+          summary_stale?: boolean
           title?: string
           updated_at?: string
           user_id?: string
         }
         Relationships: []
       }
+      notes: {
+        Row: {
+          content: Json
+          created_at: string
+          id: string
+          notebook_id: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content?: Json
+          created_at?: string
+          id?: string
+          notebook_id: string
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: Json
+          created_at?: string
+          id?: string
+          notebook_id?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notes_notebook_id_fkey"
+            columns: ["notebook_id"]
+            isOneToOne: false
+            referencedRelation: "notebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sources: {
         Row: {
+          content_hash: string | null
           content_text: string | null
           created_at: string
           error_message: string | null
@@ -190,6 +235,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          content_hash?: string | null
           content_text?: string | null
           created_at?: string
           error_message?: string | null
@@ -204,6 +250,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          content_hash?: string | null
           content_text?: string | null
           created_at?: string
           error_message?: string | null

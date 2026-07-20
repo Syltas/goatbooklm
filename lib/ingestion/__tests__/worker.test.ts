@@ -43,7 +43,13 @@ describe("processIngestionTick", () => {
     expect(runIngestionJob).toHaveBeenCalledWith({ sourceId: "source-1" })
     expect(deleteJob).toHaveBeenCalledWith(1)
     expect(results).toEqual([
-      { msgId: 1, sourceId: "source-1", status: "ready", errorMessage: undefined },
+      {
+        msgId: 1,
+        sourceId: "source-1",
+        status: "ready",
+        errorMessage: undefined,
+        notebookId: "notebook-1",
+      },
     ])
   })
 
@@ -69,6 +75,7 @@ describe("processIngestionTick", () => {
         sourceId: "source-2",
         status: "error",
         errorMessage: "PDF konnte nicht gelesen werden.",
+        notebookId: "notebook-1",
       },
     ])
   })
@@ -127,7 +134,13 @@ describe("processIngestionTick", () => {
     await expect(
       processIngestionTick([job], { runIngestionJob, deleteJob })
     ).resolves.toEqual([
-      { msgId: 1, sourceId: "source-1", status: "ready", errorMessage: undefined },
+      {
+        msgId: 1,
+        sourceId: "source-1",
+        status: "ready",
+        errorMessage: undefined,
+        notebookId: "notebook-1",
+      },
     ])
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()

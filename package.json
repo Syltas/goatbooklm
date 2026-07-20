@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "eval": "vitest run --config evals/vitest.config.ts"
+    "eval": "vitest run --config evals/vitest.config.ts",
+    "db:reset": "supabase db reset && node scripts/apply-ingestion-worker-url.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",
@@ -21,12 +22,17 @@
     "@mozilla/readability": "^0.6.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
+    "@tiptap/extension-link": "3.28.0",
+    "@tiptap/react": "3.28.0",
+    "@tiptap/starter-kit": "3.28.0",
     "ai": "^7.0.31",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "js-tiktoken": "^1.0.21",
     "linkedom": "^0.18.13",
     "lucide-react": "^1.25.0",
+    "mammoth": "^1.12.0",
     "next": "15.5.20",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.6.2",
@@ -34,6 +40,7 @@
     "react-dom": "19.1.0",
     "react-hook-form": "^7.82.0",
     "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.12.2",
     "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
     "shadcn": "^4.13.1",
@@ -55,6 +62,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.20",
+    "jszip": "^3.10.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

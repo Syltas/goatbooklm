@@ -60,6 +60,13 @@ new sources will sit on `pending`/`processing` forever since the worker tick
 can't reach them. Playwright's `webServer` config already starts the app on
 3100 automatically — see `playwright.config.ts`.)
 
+If 3100 is unavailable on your machine too, set `INGESTION_WORKER_URL` (see
+`.env.example`) to point at whatever port you actually run the dev server on,
+and use `pnpm db:reset` instead of `supabase db reset` directly — the plain
+`supabase db reset` always seeds the 3100 default (seed.sql is applied as
+raw SQL with no env-var access of its own), `pnpm db:reset` runs
+`scripts/apply-ingestion-worker-url.mjs` right after to apply the override.
+
 The worker endpoint is protected by a shared secret (`x-worker-secret`
 header) that lives **only in the database** — the
 `public.ingestion_worker_config` table, seeded fresh on every
@@ -76,6 +83,8 @@ comment for the exact statement.
 - `pnpm start` — run the production build
 - `pnpm lint` — lint with ESLint
 - `pnpm tsc --noEmit` — type-check
+- `pnpm db:reset` — `supabase db reset`, then apply an `INGESTION_WORKER_URL`
+  override if set (see "Local ingestion worker" above)
 
 ## Project conventions
 

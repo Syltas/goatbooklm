@@ -25,6 +25,41 @@ export class SourcesPanelPage {
     return this.page.getByTestId("add-source-tab-text")
   }
 
+  get fileTab(): Locator {
+    return this.page.getByTestId("add-source-tab-file")
+  }
+
+  get fileInput(): Locator {
+    return this.page.getByTestId("file-upload-file-input")
+  }
+
+  get fileTitleInput(): Locator {
+    return this.page.getByTestId("file-upload-title-input")
+  }
+
+  get fileSummary(): Locator {
+    return this.page.getByTestId("file-upload-file-summary")
+  }
+
+  get fileList(): Locator {
+    return this.page.getByTestId("file-upload-file-list")
+  }
+
+  get fileSubmit(): Locator {
+    return this.page.getByTestId("file-upload-submit")
+  }
+
+  /** Client-side pre-validation message (unsupported type, video, per-format
+   *  size cap) — distinct from `fileError`, which shows a *server* rejection
+   *  such as a dedupe hit. */
+  get validationError(): Locator {
+    return this.page.getByTestId("file-upload-validation-error")
+  }
+
+  get fileError(): Locator {
+    return this.page.getByTestId("file-upload-error")
+  }
+
   get textTitleInput(): Locator {
     return this.page.getByTestId("text-source-title-input")
   }
@@ -81,5 +116,21 @@ export class SourcesPanelPage {
    *  OpenAI embedding call both need to land within `timeoutMs`. */
   async waitForReady(timeoutMs: number) {
     await expect(this.statusBadge).toContainText("Bereit", { timeout: timeoutMs })
+  }
+
+  /** Row-scoped lookup by visible title — needed once the panel holds more
+   *  than one source (multi-PDF upload) and a single shared `statusBadge`
+   *  locator would be ambiguous. */
+  rowForTitle(title: string): Locator {
+    return this.page.locator('[data-test^="source-row-"]', { hasText: title })
+  }
+
+  /** Same as `waitForReady`, but scoped to the row whose title matches
+   *  `title` — for asserting on ONE of several PDF sources by name. */
+  async waitForReadyTitle(title: string, timeoutMs: number) {
+    await expect(this.rowForTitle(title).getByTestId("source-status-badge")).toContainText(
+      "Bereit",
+      { timeout: timeoutMs }
+    )
   }
 }

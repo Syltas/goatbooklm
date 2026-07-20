@@ -9,6 +9,18 @@
 -- inside the supabase_db_goatbooklm container and must reach the host
 -- machine, not "localhost" (which would resolve inside the container).
 --
+-- The 3100 below is only the DEFAULT (this machine's own dev server
+-- intentionally runs there — see playwright.config.ts's comment: port 3000
+-- is occupied by an unrelated project). A different machine/setup overrides
+-- it via the INGESTION_WORKER_URL env var WITHOUT editing this file — run
+-- `node scripts/apply-ingestion-worker-url.mjs` after `supabase db reset`
+-- (see that script and .env.example). The override can't live in THIS file:
+-- `supabase db reset` sends seed.sql to Postgres as a plain SQL batch
+-- (confirmed empirically — no psql, no `env()` config.toml-style
+-- interpolation, no OS-env-var access from inside a raw SQL statement is
+-- available here), so the override necessarily runs as a separate, optional
+-- pass afterward instead.
+--
 -- Eng-Review L3: the secret is generated fresh on every `supabase db reset`
 -- via `gen_random_uuid()` rather than a hardcoded literal — a literal here
 -- would be a plaintext secret checked into the repo (this file IS

@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import type { Database } from "@/lib/database.types"
 
+import { sha256Hex, sha256HexOfText } from "../hash"
 import {
   createIngestionService,
+  DuplicateSourceError,
   INGESTION_MESSAGES,
   SourceNotFoundError,
   type IngestionDeps,
@@ -72,13 +74,42 @@ function createMockClient(responsesByTable: Record<string, QueryResult[]>) {
   }
 }
 
+/** A `fileExtractors` registry whose every head is an independent spy —
+ *  built fresh per test so one test's call counts can't leak into another's. */
+function createFileExtractors(): IngestionDeps["fileExtractors"] {
+  return {
+    pdf: vi.fn(),
+    txt: vi.fn(),
+    md: vi.fn(),
+    docx: vi.fn(),
+    xlsx: vi.fn(),
+    csv: vi.fn(),
+    image: vi.fn(),
+  }
+}
+
+/**
+ * `extractPdfText` is accepted as a convenience override and folded into
+ * `fileExtractors.pdf`. The registry refactor replaced the old named
+ * `IngestionDeps.extractPdfText` field, but the PDF tests below read far
+ * better naming the head they are exercising than reaching into a registry
+ * literal at every call site — so the shorthand is kept here, in the test
+ * helper, rather than in the production interface.
+ */
 function createDeps(
   client: SupabaseClient<Database>,
-  overrides: Partial<IngestionDeps> = {}
+  overrides: Partial<IngestionDeps> & {
+    extractPdfText?: IngestionDeps["fileExtractors"]["pdf"]
+  } = {}
 ): IngestionDeps {
+  const { extractPdfText, fileExtractors, ...rest } = overrides
+
+  const extractors = fileExtractors ?? createFileExtractors()
+  if (extractPdfText) extractors.pdf = extractPdfText
+
   return {
     supabase: client,
-    extractPdfText: vi.fn(),
+    fileExtractors: extractors,
     assertSafeUrl: vi.fn().mockResolvedValue(undefined),
     fetchWebPage: vi.fn(),
     extractWebText: vi.fn(),
@@ -87,8 +118,9 @@ function createDeps(
     downloadStorageFile: vi.fn(),
     deleteStorageFile: vi.fn(),
     storageFileExists: vi.fn().mockResolvedValue(true),
+    createSignedUrl: vi.fn().mockResolvedValue("https://signed.example/img.png"),
     enqueueJob: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -98,6 +130,30 @@ function createDeps(
 function pdfBytes(body = "1.4 rest-of-file"): Uint8Array {
   return new TextEncoder().encode(`%PDF-${body}`)
 }
+
+/** The real SHA-256 of `pdfBytes()`'s default bytes — computed once via the
+ *  actual `sha256Hex` (not hand-derived/hardcoded) so any test that puts
+ *  this on a fixture's `content_hash` deterministically makes
+ *  `reconcileContentHash` (task 6) a no-op: "the client-supplied hash
+ *  already matches what the worker just downloaded", the common
+ *  non-mismatch case. Tests that DO want to exercise a mismatch use a
+ *  different literal `content_hash` value instead (see the dedicated tests
+ *  in the "content-hash reconciliation" describe block below). */
+let PDF_CONTENT_HASH: string
+
+/** Default `content_text` of `makeSource()`, and its hash. A real `text`
+ *  source always carries the hash of its own text (`createTextSource`
+ *  computes and stores it), so the fixture carries it too — otherwise
+ *  `reconcileContentHash` would see a mismatch and issue an extra UPDATE
+ *  that production never performs, which the mock's FIFO queue would then
+ *  mis-attribute to the next expected query. */
+const TEXT_CONTENT = "Ausreichend langer Beispieltext für Tests."
+let TEXT_CONTENT_HASH: string
+
+beforeAll(async () => {
+  PDF_CONTENT_HASH = await sha256Hex(pdfBytes())
+  TEXT_CONTENT_HASH = await sha256HexOfText(TEXT_CONTENT)
+})
 
 const USER_ID = "11111111-1111-4111-8111-111111111111"
 const OTHER_USER_ID = "99999999-9999-4999-8999-999999999999"
@@ -114,7 +170,8 @@ function makeSource(overrides: Partial<Source> = {}): Source {
     title: "Testquelle",
     url: null,
     storage_path: null,
-    content_text: "Ausreichend langer Beispieltext für Tests.",
+    content_text: TEXT_CONTENT,
+    content_hash: TEXT_CONTENT_HASH,
     status: "pending",
     error_message: null,
     created_at: NOW,
@@ -130,7 +187,10 @@ describe("createIngestionService", () => {
     it("happy path: inserts a pending text source and enqueues a job", async () => {
       const row = makeSource()
       const { client, from } = createMockClient({
-        sources: [{ data: row, error: null }],
+        sources: [
+          { data: null, error: null }, // dedupe pre-check: no existing match
+          { data: row, error: null }, // insert + select
+        ],
       })
       const enqueueJob = vi.fn().mockResolvedValue(undefined)
       const service = createIngestionService(createDeps(client, { enqueueJob }))
@@ -149,7 +209,10 @@ describe("createIngestionService", () => {
 
     it("error path: throws the Supabase error and does not enqueue", async () => {
       const { client } = createMockClient({
-        sources: [{ data: null, error: DB_ERROR }],
+        sources: [
+          { data: null, error: null }, // dedupe pre-check: no existing match
+          { data: null, error: DB_ERROR }, // insert fails
+        ],
       })
       const enqueueJob = vi.fn()
       const service = createIngestionService(createDeps(client, { enqueueJob }))
@@ -212,6 +275,140 @@ describe("createIngestionService", () => {
 
       expect(from).not.toHaveBeenCalled()
       expect(enqueueJob).not.toHaveBeenCalled()
+    })
+
+    // Robustness fix: an enqueue failure AFTER the row already exists used
+    // to leave it silently `pending` forever (no job ever reaches the
+    // queue, so nothing ever picks it up) — invisible until the client's
+    // 10-minute stale-guard finally flagged it. Now the row is marked
+    // `error` in the same request, and the action still surfaces a failure
+    // to the caller instead of returning a stale "pending"-looking row.
+    it("enqueue failure: the row is marked error immediately instead of left pending", async () => {
+      const pendingRow = makeSource({
+        type: "web",
+        url: "https://example.com/article",
+        title: "example.com",
+        content_text: null,
+      })
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: pendingRow, error: null }, // insert().select().single()
+          { data: null, error: null }, // enqueueOrMarkFailed's error-marking update
+        ],
+      })
+      const assertSafeUrl = vi.fn().mockResolvedValue(undefined)
+      const enqueueJob = vi.fn().mockRejectedValue(new Error("queue unavailable"))
+      const service = createIngestionService(
+        createDeps(client, { assertSafeUrl, enqueueJob })
+      )
+
+      await expect(
+        service.createWebSource({
+          notebookId: NOTEBOOK_ID,
+          userId: USER_ID,
+          url: "https://example.com/article",
+        })
+      ).rejects.toThrow(INGESTION_MESSAGES.enqueueFailed)
+
+      const updateCall = callsByTable.sources.find((c) => c.method === "update")
+      expect(updateCall?.args[0]).toMatchObject({
+        status: "error",
+        error_message: INGESTION_MESSAGES.enqueueFailed,
+      })
+    })
+  })
+
+  // Content-hash dedupe (tasks 5/6) — the create-time half. See the
+  // "content-hash reconciliation" describe block (nested under
+  // `runIngestionJob` below) for the worker-side half.
+  describe("createPendingFileSource", () => {
+    const CONTENT_HASH = "a".repeat(64)
+
+    it("happy path: no existing duplicate — inserts with the given content_hash", async () => {
+      const row = makeSource({ type: "pdf", content_hash: CONTENT_HASH })
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: null, error: null }, // findDuplicateByHash pre-check: no match
+          { data: row, error: null }, // insert().select().single()
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      const result = await service.createPendingFileSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Testquelle",
+        fileName: "test.pdf",
+          fileType: "pdf",
+        contentHash: CONTENT_HASH,
+      })
+
+      // `sourceId`/`storagePath` are generated fresh inside the service
+      // (`crypto.randomUUID()`) — not tied to `row.id` (the mock's fixed
+      // `SOURCE_ID`), so only the returned shape is asserted here; the
+      // actually-inserted row is what matters for the dedupe behavior,
+      // asserted below.
+      expect(result.sourceId).toBe(row.id)
+      expect(result.storagePath).toMatch(new RegExp(`^${USER_ID}/.+\\.pdf$`))
+      const insertCall = callsByTable.sources.find((c) => c.method === "insert")
+      expect(insertCall?.args[0]).toMatchObject({ content_hash: CONTENT_HASH })
+    })
+
+    // The real incident this whole feature responds to (see task brief):
+    // two sources in one notebook silently held byte-identical PDFs under
+    // different titles. This is the fix — reject before any Storage upload
+    // even starts, naming the existing source instead of a generic message.
+    it("dedupe hit: an existing source with the same hash in the same notebook is rejected, naming it — no insert attempted", async () => {
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: { title: "Briefing-Legienhof-16.07" }, error: null }, // findDuplicateByHash hit
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      // Same already-settled promise, checked twice — re-invoking the call
+      // would consume a second (unset) queue slot and no longer exercise
+      // the dedupe hit at all.
+      const call = service.createPendingFileSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Briefing-VZUG-16.07",
+        fileName: "vzug.pdf",
+          fileType: "pdf",
+        contentHash: CONTENT_HASH,
+      })
+      await expect(call).rejects.toBeInstanceOf(DuplicateSourceError)
+      await expect(call).rejects.toThrow("Briefing-Legienhof-16.07")
+
+      expect(callsByTable.sources.some((c) => c.method === "insert")).toBe(false)
+    })
+
+    // Task 5's actual point: the pre-check above is a TOCTOU race on its
+    // own (two concurrent uploads of the same file both pass the SELECT
+    // before either INSERT lands) — the real guarantee is
+    // `sources_notebook_id_content_hash_key`. A lost race surfaces here as
+    // a 23505 on the INSERT itself, and must still be reported by naming
+    // the row that won, not as an unhandled constraint violation.
+    it("dedupe race lost on insert (unique_violation): re-queries the winning row and names it", async () => {
+      const { client } = createMockClient({
+        sources: [
+          { data: null, error: null }, // pre-check: no match yet (the race)
+          { data: null, error: { code: "23505", message: "duplicate key value" } }, // insert loses the race
+          { data: { title: "Wettlauf-Gewinner" }, error: null }, // re-query after the race
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      await expect(
+        service.createPendingFileSource({
+          notebookId: NOTEBOOK_ID,
+          userId: USER_ID,
+          title: "Testquelle",
+          fileName: "test.pdf",
+          fileType: "pdf",
+          contentHash: CONTENT_HASH,
+        })
+      ).rejects.toThrow("Wettlauf-Gewinner")
     })
   })
 
@@ -367,6 +564,10 @@ describe("createIngestionService", () => {
         storage_path: `${USER_ID}/${SOURCE_ID}.pdf`,
         content_text: null,
         status: "processing",
+        // Matches `pdfBytes()`'s real hash — `reconcileContentHash` is a
+        // no-op, no extra "sources" call to account for in the mocked queue
+        // below (see `PDF_CONTENT_HASH`'s doc comment).
+        content_hash: PDF_CONTENT_HASH,
       })
       const erroredRow = makeSource({
         type: "pdf",
@@ -396,12 +597,54 @@ describe("createIngestionService", () => {
       expect(chunkText).not.toHaveBeenCalled()
     })
 
+    // Robustness fix: a download-layer failure (Storage unreachable, network
+    // hiccup) used to throw the same `pdfCorrupt` message as an actually
+    // broken file — misleading, since nothing about the file's content was
+    // ever examined here. Own message (`pdfDownloadFailed`), extraction
+    // never attempted.
+    it("pdf download failure (storage unreachable): status='error' with the download-failed message, not the corrupt-PDF one", async () => {
+      const pdfRow = makeSource({
+        type: "pdf",
+        storage_path: `${USER_ID}/${SOURCE_ID}.pdf`,
+        content_text: null,
+        status: "processing",
+      })
+      const erroredRow = makeSource({
+        type: "pdf",
+        status: "error",
+        error_message: INGESTION_MESSAGES.pdfDownloadFailed,
+      })
+      const { client } = createMockClient({
+        sources: [
+          { data: pdfRow, error: null },
+          { data: null, error: null },
+          { data: erroredRow, error: null },
+        ],
+      })
+
+      const downloadStorageFile = vi
+        .fn()
+        .mockRejectedValue(new Error("storage unreachable"))
+      const extractPdfText = vi.fn()
+
+      const service = createIngestionService(
+        createDeps(client, { downloadStorageFile, extractPdfText })
+      )
+
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      expect(result.status).toBe("error")
+      expect(result.error_message).toBe(INGESTION_MESSAGES.pdfDownloadFailed)
+      expect(extractPdfText).not.toHaveBeenCalled()
+    })
+
     it("pdf extraction throwing (corrupted/encrypted): status='error' with the corrupt-PDF message", async () => {
       const pdfRow = makeSource({
         type: "pdf",
         storage_path: `${USER_ID}/${SOURCE_ID}.pdf`,
         content_text: null,
         status: "processing",
+        content_hash: PDF_CONTENT_HASH, // no-op reconcile, see doc comment
       })
       const erroredRow = makeSource({
         type: "pdf",
@@ -552,6 +795,7 @@ describe("createIngestionService", () => {
         storage_path: `${USER_ID}/${SOURCE_ID}.pdf`,
         content_text: null,
         status: "processing",
+        content_hash: PDF_CONTENT_HASH, // no-op reconcile, see doc comment
       })
       const readyRow = makeSource({ type: "pdf", status: "ready" })
       const { client, callsByTable } = createMockClient({
@@ -594,6 +838,104 @@ describe("createIngestionService", () => {
       const insertCall = callsByTable.chunks.find((c) => c.method === "insert")
       const insertedRows = insertCall!.args[0] as { metadata: { page?: number } }[]
       expect(insertedRows[0].metadata.page).toBe(1)
+    })
+
+    // Task 6: the worker re-hashes the PDF bytes it actually downloaded and
+    // never trusts the client-supplied `content_hash` at face value — the
+    // client hashes before a direct-to-Storage upload the server never
+    // observes, only weakly trustworthy per the project's "never trust
+    // client input" rule.
+    describe("content-hash reconciliation", () => {
+      it("worker hash differs from the client-supplied one: the worker's value wins and is persisted, pipeline continues to ready", async () => {
+        const pdfRow = makeSource({
+          type: "pdf",
+          storage_path: `${USER_ID}/${SOURCE_ID}.pdf`,
+          content_text: null,
+          status: "processing",
+          // Deliberately NOT `PDF_CONTENT_HASH` — simulates a client-supplied
+          // hash that doesn't match the bytes actually in Storage.
+          content_hash: "0".repeat(64),
+        })
+        const readyRow = makeSource({ type: "pdf", status: "ready" })
+        const { client, callsByTable } = createMockClient({
+          sources: [
+            { data: pdfRow, error: null }, // getSourceById
+            { data: null, error: null }, // updateSource -> processing
+            { data: null, error: null }, // reconcileContentHash's update — succeeds
+            { data: readyRow, error: null }, // final update+select
+          ],
+          chunks: [{ data: null, error: null }],
+        })
+
+        const downloadStorageFile = vi.fn().mockResolvedValue(pdfBytes())
+        const extractPdfText = vi
+          .fn()
+          .mockResolvedValue({ text: "Ausreichend langer Text.", pageOffsets: [] })
+        const chunkText = vi.fn().mockReturnValue([
+          { index: 0, content: "Ausreichend langer Text.", charStart: 0, charEnd: 24, tokenCount: 5 },
+        ])
+        const embedChunks = vi.fn().mockResolvedValue([[0.1, 0.2]])
+
+        const service = createIngestionService(
+          createDeps(client, { downloadStorageFile, extractPdfText, chunkText, embedChunks })
+        )
+
+        const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+        expect(result.status).toBe("ready")
+
+        const hashUpdateCall = callsByTable.sources
+          .filter((c) => c.method === "update")
+          .find(
+            (c) =>
+              typeof c.args[0] === "object" &&
+              c.args[0] !== null &&
+              "content_hash" in (c.args[0] as object)
+          )
+        expect(hashUpdateCall?.args[0]).toEqual({ content_hash: PDF_CONTENT_HASH })
+      })
+
+      // Task 6's explicit edge case: "was passiert, wenn der Worker-Hash ein
+      // Duplikat ergibt, das die Client-Prüfung nicht gesehen hat" — the
+      // `unique(notebook_id, content_hash)` constraint rejects the
+      // reconcile update, and that must become a clean `status='error'`
+      // naming the conflicting source, not an unhandled constraint failure.
+      it("worker hash collides with another source (unique_violation): status='error' naming the conflicting source, extraction never attempted", async () => {
+        const pdfRow = makeSource({
+          type: "pdf",
+          storage_path: `${USER_ID}/${SOURCE_ID}.pdf`,
+          content_text: null,
+          status: "processing",
+          content_hash: "0".repeat(64),
+        })
+        const erroredRow = makeSource({
+          type: "pdf",
+          status: "error",
+          error_message: "Diese Datei ist identisch mit „Bestehende Quelle“.",
+        })
+        const { client } = createMockClient({
+          sources: [
+            { data: pdfRow, error: null }, // getSourceById
+            { data: null, error: null }, // updateSource -> processing
+            { data: null, error: { code: "23505", message: "duplicate key value" } }, // reconcile update loses the race
+            { data: { title: "Bestehende Quelle" }, error: null }, // findDuplicateByHash re-query
+            { data: erroredRow, error: null }, // final catch-all update+select
+          ],
+        })
+
+        const downloadStorageFile = vi.fn().mockResolvedValue(pdfBytes())
+        const extractPdfText = vi.fn()
+
+        const service = createIngestionService(
+          createDeps(client, { downloadStorageFile, extractPdfText })
+        )
+
+        const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+        expect(result.status).toBe("error")
+        expect(result.error_message).toContain("Bestehende Quelle")
+        expect(extractPdfText).not.toHaveBeenCalled()
+      })
     })
   })
 
@@ -764,6 +1106,438 @@ describe("createIngestionService", () => {
     })
   })
 
+  /**
+   * The error message the service actually WROTE. The mock returns whatever
+   * row was queued for the final select, so asserting on `result.error_message`
+   * would only re-read the fixture; the update payload is the real output.
+   */
+  function writtenErrorMessage(
+    callsByTable: Record<string, { method: string; args: unknown[] }[]>
+  ): string | undefined {
+    return callsByTable.sources
+      .filter((c) => c.method === "update")
+      .map((c) => c.args[0] as { status?: string; error_message?: string })
+      .find((payload) => payload.status === "error")?.error_message
+  }
+
+  /**
+   * The generalized file branch. Every one of these used to be PDF-only:
+   * the size check, the magic-byte check, and the extraction head itself.
+   */
+  describe("multi-format file extraction", () => {
+    const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04]
+
+    function fileSourceMocks(row: Source) {
+      return createMockClient({
+        sources: [
+          { data: row, error: null }, // getSourceById
+          { data: null, error: null }, // updateSource -> processing
+          { data: makeSource({ ...row, status: "error" }), error: null }, // catch-all
+        ],
+      })
+    }
+
+    it("routes each source type to its own extraction head, never to PDF's", async () => {
+      const docxRow = makeSource({
+        type: "docx",
+        storage_path: `${USER_ID}/${SOURCE_ID}.docx`,
+        content_hash: null,
+        status: "processing",
+      })
+      const { client } = createMockClient({
+        sources: [
+          { data: docxRow, error: null },
+          { data: null, error: null }, // -> processing
+          { data: null, error: null }, // reconcileContentHash
+          { data: makeSource({ type: "docx", status: "ready" }), error: null },
+        ],
+        chunks: [{ data: null, error: null }],
+      })
+
+      const fileExtractors = createFileExtractors()
+      fileExtractors.docx = vi.fn().mockResolvedValue({ text: "Word-Inhalt." })
+
+      const service = createIngestionService(
+        createDeps(client, {
+          fileExtractors,
+          downloadStorageFile: vi.fn().mockResolvedValue(new Uint8Array(ZIP_MAGIC)),
+          chunkText: vi
+            .fn()
+            .mockReturnValue([
+              { index: 0, content: "Word-Inhalt.", charStart: 0, charEnd: 12, tokenCount: 3 },
+            ]),
+          embedChunks: vi.fn().mockResolvedValue([[0.1]]),
+        })
+      )
+
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      expect(result.status).toBe("ready")
+      expect(fileExtractors.docx).toHaveBeenCalledOnce()
+      expect(fileExtractors.pdf).not.toHaveBeenCalled()
+    })
+
+    it("rejects bytes whose signature does not match the claimed format", async () => {
+      const docxRow = makeSource({
+        type: "docx",
+        storage_path: `${USER_ID}/${SOURCE_ID}.docx`,
+        status: "processing",
+      })
+      const { client, callsByTable } = fileSourceMocks(docxRow)
+
+      const fileExtractors = createFileExtractors()
+      const service = createIngestionService(
+        createDeps(client, {
+          fileExtractors,
+          // A PDF renamed to .docx — the bucket's MIME allowlist cannot
+          // catch this (the client declares the content type), only the
+          // bytes can.
+          downloadStorageFile: vi.fn().mockResolvedValue(pdfBytes()),
+        })
+      )
+
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      expect(result.status).toBe("error")
+      expect(writtenErrorMessage(callsByTable)).toBe(INGESTION_MESSAGES.docxCorrupt)
+      expect(fileExtractors.docx).not.toHaveBeenCalled()
+    })
+
+    it("enforces the per-format size cap on the real bytes, not one shared constant", async () => {
+      // 6 MB of PNG: under the PDF cap (20 MB) that used to be the only
+      // check, over the image cap (5 MB) that actually applies.
+      const oversized = new Uint8Array(6 * 1024 * 1024)
+      oversized.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+
+      const imageRow = makeSource({
+        type: "image",
+        storage_path: `${USER_ID}/${SOURCE_ID}.png`,
+        content_hash: null,
+        status: "processing",
+      })
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: imageRow, error: null },
+          { data: null, error: null }, // -> processing
+          { data: null, error: null }, // reconcileContentHash
+          { data: makeSource({ type: "image", status: "error" }), error: null },
+        ],
+      })
+
+      const fileExtractors = createFileExtractors()
+      const service = createIngestionService(
+        createDeps(client, {
+          fileExtractors,
+          downloadStorageFile: vi.fn().mockResolvedValue(oversized),
+        })
+      )
+
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      expect(result.status).toBe("error")
+      expect(writtenErrorMessage(callsByTable)).toBe(INGESTION_MESSAGES.sizeLimitExceeded)
+      expect(fileExtractors.image).not.toHaveBeenCalled()
+    })
+
+    it("reports a failed vision call as retryable, not as a broken image", async () => {
+      // The bytes passed the magic check, so the file is fine — it was the
+      // model call that failed. Saying "Bild ist ungültig" would send the
+      // user off to fix a file that has nothing wrong with it.
+      const imageRow = makeSource({
+        type: "image",
+        storage_path: `${USER_ID}/${SOURCE_ID}.png`,
+        content_hash: null,
+        status: "processing",
+      })
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: imageRow, error: null },
+          { data: null, error: null },
+          { data: null, error: null }, // reconcileContentHash
+          { data: makeSource({ type: "image", status: "error" }), error: null },
+        ],
+      })
+
+      const fileExtractors = createFileExtractors()
+      fileExtractors.image = vi.fn().mockRejectedValue(new Error("429 rate limited"))
+
+      const service = createIngestionService(
+        createDeps(client, {
+          fileExtractors,
+          downloadStorageFile: vi
+            .fn()
+            .mockResolvedValue(
+              new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+            ),
+        })
+      )
+
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      expect(result.status).toBe("error")
+      expect(writtenErrorMessage(callsByTable)).toBe(INGESTION_MESSAGES.imageVisionFailed)
+      expect(writtenErrorMessage(callsByTable)).not.toBe(INGESTION_MESSAGES.imageCorrupt)
+    })
+
+    it("gives each format its own empty-result message", async () => {
+      const xlsxRow = makeSource({
+        type: "xlsx",
+        storage_path: `${USER_ID}/${SOURCE_ID}.xlsx`,
+        content_hash: null,
+        status: "processing",
+      })
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: xlsxRow, error: null },
+          { data: null, error: null },
+          { data: null, error: null }, // reconcileContentHash
+          { data: makeSource({ type: "xlsx", status: "error" }), error: null },
+        ],
+      })
+
+      const fileExtractors = createFileExtractors()
+      fileExtractors.xlsx = vi.fn().mockResolvedValue({ text: "   " })
+
+      const service = createIngestionService(
+        createDeps(client, {
+          fileExtractors,
+          downloadStorageFile: vi.fn().mockResolvedValue(new Uint8Array(ZIP_MAGIC)),
+        })
+      )
+
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      // Not the PDF wording — an empty spreadsheet has nothing to do with
+      // scanned pages or OCR.
+      void result
+      expect(writtenErrorMessage(callsByTable)).toBe(INGESTION_MESSAGES.xlsxEmpty)
+      expect(writtenErrorMessage(callsByTable)).not.toBe(INGESTION_MESSAGES.pdfEmpty)
+    })
+
+    it("createPendingFileSource puts the real extension on the storage path", async () => {
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: null, error: null }, // dedupe pre-check
+          { data: makeSource({ type: "image" }), error: null }, // insert
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      const { storagePath } = await service.createPendingFileSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Foto",
+        fileName: "Foto.JPG",
+        fileType: "image",
+        contentHash: PDF_CONTENT_HASH,
+      })
+
+      // Not `.pdf` (the old hard-coded suffix) — Storage serves by
+      // extension, so an image under a .pdf path gets the wrong content type.
+      expect(storagePath).toMatch(/\.jpg$/)
+      expect(storagePath.startsWith(`${USER_ID}/`)).toBe(true)
+
+      const insertCall = callsByTable.sources.find((c) => c.method === "insert")
+      expect((insertCall!.args[0] as { type: string }).type).toBe("image")
+    })
+
+    it("falls back to the canonical extension when the upload has none", async () => {
+      const { client } = createMockClient({
+        sources: [
+          { data: null, error: null },
+          { data: makeSource({ type: "docx" }), error: null },
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      const { storagePath } = await service.createPendingFileSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Ohne Endung",
+        fileName: "dokument",
+        fileType: "docx",
+        contentHash: PDF_CONTENT_HASH,
+      })
+
+      expect(storagePath).toMatch(/\.docx$/)
+    })
+  })
+
+  /**
+   * Dedupe beyond the PDF path. The unique index
+   * `(notebook_id, content_hash)` never fired for `text`/`web` sources
+   * because neither ever set `content_hash`, and Postgres treats every NULL
+   * in a unique index as distinct — so the same note converted twice, or the
+   * same URL added twice, produced two independent sources silently. That is
+   * the corpus duplication that halves effective top-k.
+   */
+  describe("dedupe for non-PDF source types", () => {
+    it("createTextSource: rejects identical text up front, naming the existing source", async () => {
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          // Dedupe pre-check finds a row with the same content hash.
+          { data: { title: "Briefing-Legienhof" }, error: null },
+        ],
+      })
+      const enqueueJob = vi.fn()
+      const service = createIngestionService(createDeps(client, { enqueueJob }))
+
+      const call = service.createTextSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Andere Überschrift, gleicher Text",
+        text: "Exakt derselbe Notiztext.",
+      })
+
+      await expect(call).rejects.toBeInstanceOf(DuplicateSourceError)
+      // Naming the existing source is the whole point — a generic "already
+      // exists" would not have surfaced the real incident, where two sources
+      // held the same document under two different titles.
+      await expect(call).rejects.toThrow("Briefing-Legienhof")
+
+      // Rejected before any row is written or job queued.
+      expect(callsByTable.sources.some((c) => c.method === "insert")).toBe(false)
+      expect(enqueueJob).not.toHaveBeenCalled()
+    })
+
+    it("createTextSource: stores the hash of the text so later duplicates can be caught", async () => {
+      const row = makeSource()
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: null, error: null }, // pre-check: no match
+          { data: row, error: null }, // insert + select
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      await service.createTextSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Notiz",
+        text: TEXT_CONTENT,
+      })
+
+      const insertCall = callsByTable.sources.find((c) => c.method === "insert")
+      const inserted = insertCall!.args[0] as { content_hash?: string }
+      expect(inserted.content_hash).toBe(TEXT_CONTENT_HASH)
+    })
+
+    it("createTextSource: a lost insert race still reports the named duplicate", async () => {
+      const { client } = createMockClient({
+        sources: [
+          { data: null, error: null }, // pre-check passes (concurrent writer not yet committed)
+          { data: null, error: { code: "23505" } }, // insert hits the unique constraint
+          { data: { title: "Wettlauf-Gewinner" }, error: null }, // re-query names it
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      await expect(
+        service.createTextSource({
+          notebookId: NOTEBOOK_ID,
+          userId: USER_ID,
+          title: "Notiz",
+          text: "irgendein Text",
+        })
+      ).rejects.toThrow("Wettlauf-Gewinner")
+    })
+
+    it("web source: the worker hashes the EXTRACTED article text, not the HTML", async () => {
+      // Hashing the response HTML would never match itself — the markup
+      // around an article changes on nearly every fetch (ads, nav, build
+      // hashes) while the article does not.
+      const articleText = "Der eigentliche Artikeltext, lang genug für Tests."
+      const webRow = makeSource({
+        type: "web",
+        url: "https://example.com/artikel",
+        content_text: null,
+        content_hash: null,
+        status: "processing",
+      })
+      const readyRow = makeSource({ type: "web", status: "ready" })
+
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: webRow, error: null }, // getSourceById
+          { data: null, error: null }, // updateSource -> processing
+          { data: null, error: null }, // reconcileContentHash update
+          { data: readyRow, error: null }, // final update+select
+        ],
+        chunks: [{ data: null, error: null }],
+      })
+
+      const service = createIngestionService(
+        createDeps(client, {
+          fetchWebPage: vi
+            .fn()
+            .mockResolvedValue({ html: "<html>…</html>", finalUrl: "https://example.com/artikel" }),
+          extractWebText: vi.fn().mockReturnValue({ text: articleText }),
+          chunkText: vi
+            .fn()
+            .mockReturnValue([
+              { index: 0, content: articleText, charStart: 0, charEnd: articleText.length, tokenCount: 9 },
+            ]),
+          embedChunks: vi.fn().mockResolvedValue([[0.1, 0.2]]),
+        })
+      )
+
+      await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      const hashUpdate = callsByTable.sources
+        .filter((c) => c.method === "update")
+        .map((c) => c.args[0] as { content_hash?: string })
+        .find((payload) => payload.content_hash)
+
+      expect(hashUpdate?.content_hash).toBe(await sha256HexOfText(articleText))
+    })
+
+    it("worker: a unique violation becomes a clean error status, not a crashed job", async () => {
+      // This is the case that must never surface as an unhandled constraint
+      // error: pgmq would redeliver the job forever and the source would sit
+      // in `processing` with no explanation. It has to end as status='error'
+      // with a message naming the source it duplicates.
+      const webRow = makeSource({
+        type: "web",
+        url: "https://example.com/artikel",
+        content_text: null,
+        content_hash: null,
+        status: "processing",
+      })
+      const erroredRow = makeSource({
+        type: "web",
+        status: "error",
+        error_message: "Diese Quelle ist identisch mit „Bestehende Quelle“.",
+      })
+
+      const { client } = createMockClient({
+        sources: [
+          { data: webRow, error: null }, // getSourceById
+          { data: null, error: null }, // updateSource -> processing
+          { data: null, error: { code: "23505" } }, // hash update hits the constraint
+          { data: { title: "Bestehende Quelle" }, error: null }, // re-query names the winner
+          { data: erroredRow, error: null }, // catch-all persists status='error'
+        ],
+      })
+
+      const service = createIngestionService(
+        createDeps(client, {
+          fetchWebPage: vi
+            .fn()
+            .mockResolvedValue({ html: "<html/>", finalUrl: "https://example.com/artikel" }),
+          extractWebText: vi.fn().mockReturnValue({ text: "Doppelter Artikeltext." }),
+        })
+      )
+
+      // Resolves (does not throw) — `processIngestionTick` treats a resolved
+      // call as a handled terminal outcome and deletes the job, which is
+      // exactly what should happen for a duplicate.
+      const result = await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      expect(result.status).toBe("error")
+      expect(result.error_message).toContain("Bestehende Quelle")
+    })
+  })
+
   describe("deleteSource", () => {
     it("happy path (pdf): deletes the row and the storage object", async () => {
       const pdfRow = makeSource({ type: "pdf", storage_path: `${USER_ID}/${SOURCE_ID}.pdf` })
@@ -811,13 +1585,38 @@ describe("createIngestionService", () => {
       expect(deleteStorageFile).not.toHaveBeenCalled()
       expect(callsByTable.sources.some((c) => c.method === "delete")).toBe(false)
     })
+
+    // Bugfix Befund 3 (adversarial review): the row is already gone by the
+    // time Storage is touched, so a Storage failure must not surface as a
+    // reported error — that used to skip the caller's
+    // `invalidateNotebookSummary`/`revalidatePath` for a delete that, from
+    // the DB's perspective, already succeeded.
+    it("storage delete failure: best-effort, logged, does not throw — the row is already deleted", async () => {
+      const pdfRow = makeSource({ type: "pdf", storage_path: `${USER_ID}/${SOURCE_ID}.pdf` })
+      const { client } = createMockClient({
+        sources: [
+          { data: pdfRow, error: null },
+          { data: null, error: null },
+        ],
+      })
+      const deleteStorageFile = vi.fn().mockRejectedValue(new Error("storage unavailable"))
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+      const service = createIngestionService(createDeps(client, { deleteStorageFile }))
+
+      const result = await service.deleteSource({ sourceId: SOURCE_ID, userId: USER_ID })
+
+      expect(result).toEqual({ notebookId: pdfRow.notebook_id })
+      expect(deleteStorageFile).toHaveBeenCalledWith(`${USER_ID}/${SOURCE_ID}.pdf`)
+      expect(consoleError).toHaveBeenCalled()
+      consoleError.mockRestore()
+    })
   })
 
   // Eng-Review L1: the old single `deleteNotebookStorageObjects` (read +
   // delete in one call) is split into a read-only step and a
   // delete-only step, called on either side of the notebook's DB delete —
   // see app/(app)/notebooks/actions.ts's `deleteNotebookAction`.
-  describe("getNotebookPdfStoragePaths", () => {
+  describe("getNotebookStoragePaths", () => {
     it("happy path: returns every pdf source's storage_path, read-only (no deletes)", async () => {
       const rows = [{ storage_path: "u1/a.pdf" }, { storage_path: "u1/b.pdf" }]
       const { client, callsByTable } = createMockClient({
@@ -825,7 +1624,7 @@ describe("createIngestionService", () => {
       })
       const service = createIngestionService(createDeps(client))
 
-      const paths = await service.getNotebookPdfStoragePaths({
+      const paths = await service.getNotebookStoragePaths({
         notebookId: NOTEBOOK_ID,
         userId: USER_ID,
       })
@@ -839,7 +1638,7 @@ describe("createIngestionService", () => {
       const { client } = createMockClient({ sources: [{ data: rows, error: null }] })
       const service = createIngestionService(createDeps(client))
 
-      const paths = await service.getNotebookPdfStoragePaths({
+      const paths = await service.getNotebookStoragePaths({
         notebookId: NOTEBOOK_ID,
         userId: USER_ID,
       })

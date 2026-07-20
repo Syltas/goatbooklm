@@ -62,6 +62,15 @@ export interface WorkerJobResult {
    */
   status: "ready" | "error" | "crashed" | "notFound" | "invalid"
   errorMessage?: string
+  /**
+   * The source's notebook — only known when `runIngestionJob` actually
+   * resolved a source row (i.e. `status` is `"ready"` or `"error"`, never
+   * `"crashed"`/`"notFound"`/`"invalid"`). The route handler uses this to
+   * trigger a notebook-summary regeneration (Part A of the empty-chat-
+   * summary feature) right after a `ready` result, without a second DB
+   * lookup for the source's `notebook_id`.
+   */
+  notebookId?: string
 }
 
 /**
@@ -160,6 +169,7 @@ export async function processIngestionTick(
       sourceId: source.id,
       status: source.status === "ready" ? "ready" : "error",
       errorMessage: source.error_message ?? undefined,
+      notebookId: source.notebook_id,
     })
   }
 

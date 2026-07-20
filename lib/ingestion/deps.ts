@@ -4,14 +4,38 @@ import type { Database } from "@/lib/database.types"
 
 import { chunkText } from "./chunker"
 import { embedChunks } from "./embed"
-import {
-  assertSafeUrl,
-  extractPdfText,
-  extractWebText,
-  fetchWebPage,
-} from "./extract"
+import { assertSafeUrl, extractPdfText, extractWebText, fetchWebPage } from "./extract"
+import { extractCsv } from "./extractors/csv"
+import { extractDocx } from "./extractors/docx"
+import { extractImage } from "./extractors/image"
+import { extractPlainText } from "./extractors/plain-text"
+import type { FileExtractor } from "./extractors/types"
+import { extractXlsx } from "./extractors/xlsx"
+import type { FileSourceType } from "./formats"
 import { enqueueIngestionJob } from "./queue"
 import type { IngestionDeps } from "./service"
+
+/**
+ * The production extraction registry — one head per file format, keyed by
+ * `sources.type`. `Record<FileSourceType, …>` is load-bearing: adding a
+ * member to `FileSourceType` without adding its head here is a compile
+ * error, so a format can never reach the pipeline with nothing to extract
+ * it (which would previously have surfaced only at runtime, as a source
+ * stuck in `error`).
+ *
+ * PDF is adapted rather than rewritten: `extractPdfText` predates the
+ * registry and takes bare bytes while returning the one extra field only it
+ * produces (`pageOffsets`, for `chunks.metadata.page`).
+ */
+const FILE_EXTRACTORS: Record<FileSourceType, FileExtractor> = {
+  pdf: async ({ bytes }) => extractPdfText(bytes),
+  txt: extractPlainText,
+  md: extractPlainText,
+  csv: extractCsv,
+  docx: extractDocx,
+  xlsx: extractXlsx,
+  image: extractImage,
+}
 
 const SOURCES_BUCKET = "sources"
 
@@ -45,7 +69,7 @@ export function createIngestionDeps(
 
   return {
     supabase,
-    extractPdfText,
+    fileExtractors: FILE_EXTRACTORS,
     assertSafeUrl,
     fetchWebPage,
     extractWebText,
@@ -78,6 +102,18 @@ export function createIngestionDeps(
       if (error) throw error
 
       return (data ?? []).some((entry) => entry.name === fileName)
+    },
+
+    async createSignedUrl(path: string, expiresInSeconds: number): Promise<string> {
+      const { data, error } = await supabase.storage
+        .from(SOURCES_BUCKET)
+        .createSignedUrl(path, expiresInSeconds)
+      if (error) throw error
+      // Supabase types `signedUrl` as optional on the success branch; a
+      // success with no URL would otherwise return `undefined` to the reader
+      // and render a broken image with no explanation.
+      if (!data?.signedUrl) throw new Error("Signed URL konnte nicht erstellt werden.")
+      return data.signedUrl
     },
 
     async enqueueJob(sourceId: string): Promise<void> {

@@ -1,6 +1,17 @@
 "use client"
 
-import { AlignLeft, FileText, Globe, Loader2, RotateCw, Trash2 } from "lucide-react"
+import {
+  AlignLeft,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  Globe,
+  Hash,
+  Loader2,
+  RotateCw,
+  Trash2,
+} from "lucide-react"
 import { useTransition } from "react"
 import { toast } from "sonner"
 
@@ -10,12 +21,22 @@ import {
   effectiveStatus,
   type SourceStatus,
 } from "@/lib/ingestion/source-status"
+import { getNotebookCardColor } from "@/lib/notebooks/presentation"
 
 import { retrySourceAction } from "../actions"
 import { getChunkCount, type SourceWithChunkCount } from "../types"
 
+/** One icon per `sources.type`. Distinguishing the formats at a glance
+ *  matters more now that a notebook can hold seven of them — a single
+ *  generic file icon for everything would make the list unscannable. */
 const TYPE_ICON: Record<string, typeof FileText> = {
   pdf: FileText,
+  txt: AlignLeft,
+  md: Hash,
+  docx: FileType,
+  xlsx: FileSpreadsheet,
+  csv: FileSpreadsheet,
+  image: FileImage,
   text: AlignLeft,
   web: Globe,
 }
@@ -107,16 +128,19 @@ export function SourceListItem({
             }
           : undefined
       }
-      className="flex items-start gap-2.5 border-b border-border px-3 py-2.5 last:border-b-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none data-open:cursor-pointer"
+      className="flex items-start gap-2.5 rounded-[12px] p-2.5 hover:bg-background focus-visible:bg-background focus-visible:outline-none data-open:cursor-pointer"
       data-open={canOpen ? "" : undefined}
       data-test={`source-row-${source.id}`}
     >
-      <Icon
-        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+      <span
+        className="mt-px flex size-7 shrink-0 items-center justify-center rounded-lg text-foreground"
+        style={{ backgroundColor: getNotebookCardColor(source.id) }}
         aria-hidden="true"
-      />
+      >
+        <Icon className="size-3.5" aria-hidden="true" />
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">
+        <p className="truncate text-[13.5px] leading-[1.45] font-bold text-foreground">
           {source.title}
         </p>
         <StatusBadge status={status} chunkCount={getChunkCount(source)} />

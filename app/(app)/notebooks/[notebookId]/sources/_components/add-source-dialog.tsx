@@ -12,7 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import type { SourceWithChunkCount } from "../types"
-import { PdfUploadTab } from "./pdf-upload-tab"
+import { FileUploadTab } from "./file-upload-tab"
 import { TextSourceTab } from "./text-source-tab"
 import { WebSourceTab } from "./web-source-tab"
 
@@ -24,11 +24,15 @@ interface AddSourceDialogProps {
 }
 
 /**
- * 3-tab (PDF/Text/Web) add-source dialog (specs/02-ingestion.md §5 AC-1).
+ * 3-tab (Datei/Text/Web) add-source dialog (specs/02-ingestion.md §5 AC-1).
  * Text/Web get a full `Source` row back from their action and hand it to
- * `onCreated` for an immediate list update; PDF only ever gets
+ * `onCreated` for an immediate list update; the file tab only ever gets
  * `{ sourceId, storagePath }` back (§9 contract) and instead just closes —
- * see `pdf-upload-tab.tsx`'s doc comment for why that's still correct.
+ * see `file-upload-tab.tsx`'s doc comment for why that's still correct.
+ *
+ * The first tab covers every uploadable format (PDF, Word, Excel, CSV,
+ * text, Markdown, images), not just PDF — hence "Datei" rather than a
+ * per-format tab, which would not scale past two or three formats.
  */
 export function AddSourceDialog({
   notebookId,
@@ -36,7 +40,7 @@ export function AddSourceDialog({
   onOpenChange,
   onCreated,
 }: AddSourceDialogProps) {
-  const [tab, setTab] = useState("pdf")
+  const [tab, setTab] = useState("file")
 
   function handleCreated(source: SourceWithChunkCount) {
     onCreated(source)
@@ -49,15 +53,16 @@ export function AddSourceDialog({
         <DialogHeader>
           <DialogTitle>Quelle hinzufügen</DialogTitle>
           <DialogDescription>
-            Füge ein PDF, eingefügten Text oder eine Web-Seite als neue
-            Quelle zu diesem Notizbuch hinzu.
+            Füge eine Datei (PDF, Word, Excel, CSV, Text, Markdown oder
+            Bild), eingefügten Text oder eine Web-Seite als neue Quelle zu
+            diesem Notizbuch hinzu.
           </DialogDescription>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="pdf" data-test="add-source-tab-pdf">
-              PDF
+            <TabsTrigger value="file" data-test="add-source-tab-file">
+              Datei
             </TabsTrigger>
             <TabsTrigger value="text" data-test="add-source-tab-text">
               Text
@@ -67,8 +72,8 @@ export function AddSourceDialog({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="pdf">
-            <PdfUploadTab
+          <TabsContent value="file">
+            <FileUploadTab
               notebookId={notebookId}
               onDone={() => onOpenChange(false)}
             />

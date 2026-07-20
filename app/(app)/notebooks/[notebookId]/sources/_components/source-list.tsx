@@ -11,7 +11,10 @@ interface SourceListProps {
 
 export function SourceList({ sources, onOpen, onDeleteRequest }: SourceListProps) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" data-test="source-list">
+    <div
+      className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2"
+      data-test="source-list"
+    >
       {sources.map((source) => (
         <SourceListItem
           key={source.id}
