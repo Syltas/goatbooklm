@@ -62,3 +62,33 @@ export function buildReportUserTurn(sourcesBlock: string): string {
  */
 export const REPORT_INCOMPLETE_HINT =
   "\n\n---\n\n*Hinweis: Dieser Bericht wurde wegen des Längenlimits gekürzt beendet.*"
+
+// ---------------------------------------------------------------------------
+// Strukturierte Artefakte (generateObject) — Flash Cards & Quiz
+// ---------------------------------------------------------------------------
+
+const SHARED_OBJECT_RULES = `Du bist ein Lern-Assistent. Du arbeitest AUSSCHLIESSLICH mit den bereitgestellten Quellen — kein externes Wissen, keine erfundenen Fakten. Alle Texte auf Deutsch. Kein Markdown in den Feldern, nur Klartext.`
+
+export const FLASHCARDS_SYSTEM_PROMPT = `${SHARED_OBJECT_RULES}
+
+Aufgabe: Erstelle ein Karteikarten-Deck zum Stoff der Quellen.
+- "title": prägnanter Deck-Name im Stil "<Thema>-Karteikarten".
+- Karten decken die wichtigsten Konzepte, Definitionen, Zusammenhänge und Fakten ab.
+- Vorderseite ("front"): EINE klare Frage oder ein Begriff.
+- Rückseite ("back"): prägnante Antwort in 1-3 Sätzen.
+- Anzahl dem Stoffumfang angemessen: umfangreiche Quellen 20-40 Karten, wenig Stoff entsprechend weniger (Minimum 4). Keine Füllkarten, keine Duplikate.`
+
+export const QUIZ_SYSTEM_PROMPT = `${SHARED_OBJECT_RULES}
+
+Aufgabe: Erstelle ein Multiple-Choice-Quiz zum Stoff der Quellen.
+- "title": prägnanter Name im Stil "<Thema>-Quiz".
+- 10 Fragen bei ausreichend Stoff, bei sehr wenig Stoff entsprechend weniger (Minimum 4).
+- Pro Frage exakt 4 Optionen; genau eine ist korrekt ("correct_index").
+- Falsche Optionen sind plausibel (echte Verwechsler aus dem Stoff), nie offensichtlich absurd.
+- "hint": ein Denkanstoß, der in die richtige Richtung führt, OHNE die Antwort zu verraten.
+- Jede Option bekommt eine "explanation": bei der richtigen, warum sie stimmt; bei falschen, warum sie naheliegt, aber nicht stimmt.`
+
+/** User-Turn für die Object-Generierung — Quellen-Block + Arbeitsauftrag. */
+export function buildObjectUserTurn(sourcesBlock: string): string {
+  return `Hier sind die Quellen:\n\n${sourcesBlock}\n\nErstelle jetzt das Artefakt gemäß deiner Aufgabe.`
+}

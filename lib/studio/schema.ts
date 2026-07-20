@@ -14,18 +14,29 @@ export const REPORT_FORMAT_VALUES = [
 
 export type ReportFormat = (typeof REPORT_FORMAT_VALUES)[number]
 
+/** Generierbare Artefakt-Typen (Audio kommt später über pgmq, nicht diese Route). */
+export const GENERATABLE_TYPE_VALUES = ["report", "flashcards", "quiz"] as const
+
+export type GeneratableType = (typeof GENERATABLE_TYPE_VALUES)[number]
+
 /**
  * `POST /api/studio/generate` — discriminated union (Spec "Generierung"):
- * Neu-Generierung trägt `format` (+ optionales, in v1 ignoriertes
- * `sourceIds` als Forward-Compat für die Quellen-Auswahl nach dem
- * core-loop-v2-Merge); Retry trägt NUR `retryArtifactId` — `format` kommt
- * dann aus der persistierten Row, ein Body-`format` ist absichtlich nicht
- * erlaubt (Review-Fix R2-2: kein "wer gewinnt?"-Konflikt).
+ * Neu-Generierung trägt `type` (+ `format` NUR bei Reports) und die im
+ * Create-Dialog gewählten `sourceIds` (leer/fehlend = alle ready-Quellen);
+ * Retry trägt NUR `retryArtifactId` — type/format kommen dann aus der
+ * persistierten Row, ein Body-`format` ist absichtlich nicht erlaubt
+ * (Review-Fix R2-2: kein "wer gewinnt?"-Konflikt).
  */
-export const generateReportSchema = z.union([
+export const generateArtifactSchema = z.union([
   z.object({
     notebookId: z.uuid("Ungültige Notizbuch-ID"),
+    type: z.literal("report"),
     format: z.enum(REPORT_FORMAT_VALUES),
+    sourceIds: z.array(z.uuid()).optional(),
+  }),
+  z.object({
+    notebookId: z.uuid("Ungültige Notizbuch-ID"),
+    type: z.enum(["flashcards", "quiz"]),
     sourceIds: z.array(z.uuid()).optional(),
   }),
   z.object({
@@ -34,7 +45,7 @@ export const generateReportSchema = z.union([
   }),
 ])
 
-export type GenerateReportInput = z.infer<typeof generateReportSchema>
+export type GenerateArtifactInput = z.infer<typeof generateArtifactSchema>
 
 export const RenameStudioArtifactSchema = z.object({
   artifactId: z.uuid("Ungültige Artefakt-ID"),

@@ -156,6 +156,17 @@ Ziel: Sobald die Studio-Basis steht, können Flash Cards, Quiz und Audio in para
 
 **Damit Parallel-Sessions konfliktfrei bleiben:** jedes Folge-Feature fasst nur eigene neue Dateien an (Renderer-Komponente, Prompt-Eintrag) + je einen Registry-Eintrag (Prompt-Registry, Renderer-Switch, Kachel-Liste). Registry-Dateien klein und append-only halten.
 
+## Nachtrag 2026-07-20: Flash Cards & Quiz (gebaut)
+
+Von Andi per Screenshots spezifiziert (NotebookLM-Parität), Vorgabe: **Quellen-Auswahl ja, sonst keine Feinjustierung**. Feedback-Buttons (Good/Bad content) und Frage-Editieren: gecuttet.
+
+- **Quellen-Auswahl im Create-Dialog** (nicht als globale Sources-Panel-Checkboxen): Checkbox-Liste aller ready-Quellen, alle vorausgewählt. Begründung: Sources-Panel wird parallel von core-loop-v2 umgebaut (Konfliktfläche), die Route nahm `sourceIds` schon entgegen. Gilt jetzt für alle 3 Typen inkl. Reports.
+- **API**: `POST /api/studio/generate` mit `type` (report | flashcards | quiz) in der Create-Variante; `sourceIds` aktiv (leer = alle). Flashcards/Quiz: `generateObject` gegen Zod-Schema (`lib/studio/content-schema.ts`), Response sofort 202 + `artifactId`, Generierung + Persist in `after()`, Panel-Poll übernimmt. Retry generisch (Guard unverändert), behält die persistierte Quellen-Auswahl (Schnittmenge mit noch-ready; leer → alle).
+- **Content-Shapes**: flashcards `{title, cards:[{front, back}]}` (Anzahl stoffabhängig, min 4); quiz `{title, questions:[{question, hint, options:[{text, explanation}]×4, correct_index}]}` (10 Fragen bei genug Stoff, min 4). Titel generiert das Modell („<Thema>-Karteikarten/-Quiz").
+- **Flashcards-Viewer**: Flip-Karte (Klick/Leertaste), ←/→-Navigation, ✗/✓-Zähler session-lokal (kein persistierter Lernfortschritt in v1), „Erklären" auf der Rückseite.
+- **Quiz-Viewer**: 4 Optionen, Hinweis-Toggle vor der Antwort, danach Feedback-Färbung (richtig = `--card-3`, falsch gewählt = `--card-1`) + Erklärung unter jeder Option, Zurück/Weiter, „Erklären" nach der Antwort. Antworten session-lokal.
+- **Explain→Chat-Bridge**: Studio-Viewer reicht einen vorbereiteten deutschen Prompt hoch (Karten-/Frage-Kontext, NotebookLM-Wortlaut-Analogie); Shell → `ChatPanel.injectedPrompt` (nonce-Pattern wie `historyClearedAt`) → wird als User-Turn gesendet (busy → Input vorbefüllt). Mobile schließt das Studio-Sheet. Bestandsdatei-Edits: `chat-panel.tsx` (~20 Zeilen), Shell (~25) — bewusste Ausnahme von „nur neue Dateien", im Merge-Plan eingepreist.
+
 ## What I noticed about how you think
 
 - Du hast Suggestions und „Create Your Own" gecuttet, bevor ich fragen konnte — „wir lassen es bei briefing doc study guide und blog post". Scope-Disziplin per Default, nicht nach Diskussion.

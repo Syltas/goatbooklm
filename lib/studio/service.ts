@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-import type { Database } from "@/lib/database.types"
+import type { Database, Json } from "@/lib/database.types"
 
 import type { ContextSource } from "./context"
-import type { ReportFormat } from "./schema"
+import type { GeneratableType, ReportFormat } from "./schema"
 
 export type StudioArtifact = Database["public"]["Tables"]["studio_artifacts"]["Row"]
 
@@ -55,18 +55,27 @@ class StudioService {
   }
 
   /**
-   * v1-Quellen-Scope (Spec Premise 4): ALLE ready-Quellen des Notebooks mit
-   * nicht-leerem `content_text`. Leere/`null`-Texte fallen raus — sie
-   * hätten im Prompt nichts beizutragen und würden das "≥1 Quelle"-Gate
-   * fälschlich passieren lassen.
+   * Ready-Quellen des Notebooks mit nicht-leerem `content_text`. Leere/
+   * `null`-Texte fallen raus — sie hätten im Prompt nichts beizutragen und
+   * würden das "≥1 Quelle"-Gate fälschlich passieren lassen. `sourceIds`
+   * (Create-Dialog-Auswahl bzw. Retry-Snapshot) schränkt zusätzlich ein —
+   * fremde/gelöschte IDs fallen dabei einfach raus (Schnittmenge, kein
+   * Fehler): RLS + `notebook_id`-Filter verhindern jeden Leak.
    */
-  async loadReadySources(notebookId: string): Promise<ContextSource[]> {
-    const { data, error } = await this.client
+  async loadReadySources(
+    notebookId: string,
+    sourceIds?: string[]
+  ): Promise<ContextSource[]> {
+    let query = this.client
       .from("sources")
       .select("id, title, content_text")
       .eq("notebook_id", notebookId)
       .eq("status", "ready")
       .order("created_at", { ascending: true })
+    if (sourceIds && sourceIds.length > 0) {
+      query = query.in("id", sourceIds)
+    }
+    const { data, error } = await query
     if (error) throw error
     return (data ?? [])
       .filter((row) => (row.content_text ?? "").trim().length > 0)
@@ -80,7 +89,9 @@ class StudioService {
   async createGeneratingArtifact(input: {
     notebookId: string
     userId: string
-    format: ReportFormat
+    type: GeneratableType
+    /** Nur für `type='report'` (DB-Constraint `report_requires_format`). */
+    format: ReportFormat | null
     provisionalTitle: string
     sourceIds: string[]
   }): Promise<StudioArtifact> {
@@ -89,7 +100,7 @@ class StudioService {
       .insert({
         notebook_id: input.notebookId,
         user_id: input.userId,
-        type: "report",
+        type: input.type,
         format: input.format,
         title: input.provisionalTitle,
         status: "generating",
@@ -140,7 +151,6 @@ class StudioService {
       })
       .eq("id", input.artifactId)
       .eq("notebook_id", input.notebookId)
-      .eq("type", "report")
       .or(`status.eq.failed,and(status.eq.generating,updated_at.lt.${staleCutoff})`)
       .select()
       .maybeSingle()
@@ -148,20 +158,19 @@ class StudioService {
     return data
   }
 
+  /** `content`-Shape verantwortet der Aufrufer (Report: markdown-Objekt,
+   *  Flashcards/Quiz: validiertes `generateObject`-Ergebnis). */
   async finalizeReady(input: {
     artifactId: string
     title: string
-    markdown: string
-    truncated: boolean
+    content: Json
   }): Promise<void> {
     const { error } = await this.client
       .from("studio_artifacts")
       .update({
         status: "ready",
         title: input.title,
-        content: input.truncated
-          ? { markdown: input.markdown, truncated: true }
-          : { markdown: input.markdown },
+        content: input.content,
         error_message: null,
       })
       .eq("id", input.artifactId)

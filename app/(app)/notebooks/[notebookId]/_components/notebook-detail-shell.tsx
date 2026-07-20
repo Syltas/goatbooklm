@@ -126,6 +126,7 @@ function ChatPanelSlot({
   onMobileReaderOpen,
   historyClearedAt,
   onMessageCountChange,
+  injectedPrompt,
 }: {
   notebookId: string
   initialMessages: ChatUIMessage[]
@@ -133,6 +134,7 @@ function ChatPanelSlot({
   onMobileReaderOpen: () => void
   historyClearedAt: number
   onMessageCountChange: (count: number) => void
+  injectedPrompt: { text: string; nonce: number } | null
 }) {
   const { openSource } = useSourceReader()
 
@@ -156,6 +158,7 @@ function ChatPanelSlot({
       onCite={handleCite}
       historyClearedAt={historyClearedAt}
       onMessageCountChange={onMessageCountChange}
+      injectedPrompt={injectedPrompt}
     />
   )
 }
@@ -181,6 +184,20 @@ export function NotebookDetailShell({
   // for `ChatPanel`'s effect to fire again.
   const [historyClearedAt, setHistoryClearedAt] = useState(0)
   const [messageCount, setMessageCount] = useState(initialMessages.length)
+
+  // Studio→Chat Explain-Bridge (docs/specs/studio-quick-wins.md): der
+  // Studio-Viewer reicht einen fertigen Prompt hoch, der Chat sendet ihn
+  // als User-Turn. Auf Mobile zusätzlich das Studio-Sheet schließen, damit
+  // der Chat (dahinter) sichtbar wird.
+  const [explainPrompt, setExplainPrompt] = useState<{
+    text: string
+    nonce: number
+  } | null>(null)
+
+  function handleExplain(text: string) {
+    setExplainPrompt((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+    setMobilePanel(null)
+  }
 
   // Lifted above both the desktop and mobile-sheet mounts of the
   // Sources-Panel body (see the two `<SourcesPanel>` call sites below) so
@@ -246,6 +263,7 @@ export function NotebookDetailShell({
               onMobileReaderOpen={() => setMobilePanel("sources")}
               historyClearedAt={historyClearedAt}
               onMessageCountChange={setMessageCount}
+              injectedPrompt={explainPrompt}
             />
           </DesktopPanel>
 
@@ -255,7 +273,11 @@ export function NotebookDetailShell({
             onToggle={() => toggle("studio")}
             expandedClassName="hidden w-[300px] shrink-0 md:flex"
           >
-            <StudioPanel notebookId={notebook.id} readyCount={readyCount} />
+            <StudioPanel
+              notebookId={notebook.id}
+              sources={sources}
+              onExplain={handleExplain}
+            />
           </DesktopPanel>
         </div>
 
@@ -323,7 +345,11 @@ export function NotebookDetailShell({
                   />
                 )}
                 {mobilePanel === "studio" && (
-                  <StudioPanel notebookId={notebook.id} readyCount={readyCount} />
+                  <StudioPanel
+                    notebookId={notebook.id}
+                    sources={sources}
+                    onExplain={handleExplain}
+                  />
                 )}
               </div>
             </div>

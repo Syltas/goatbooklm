@@ -14,16 +14,24 @@ export class StudioPanelPage {
     return this.page.getByTestId("studio-panel")
   }
 
-  get createReportTile(): Locator {
-    return this.page.getByTestId("studio-create-report-tile")
+  createTile(type: "report" | "flashcards" | "quiz"): Locator {
+    return this.page.getByTestId(`studio-create-${type}-tile`)
   }
 
   get createDialog(): Locator {
-    return this.page.getByTestId("create-report-dialog")
+    return this.page.getByTestId("create-artifact-dialog")
   }
 
   formatCard(format: ReportFormat): Locator {
     return this.page.getByTestId(`create-report-format-${format}`)
+  }
+
+  get createSubmit(): Locator {
+    return this.page.getByTestId("create-artifact-submit")
+  }
+
+  get sourceCheckboxes(): Locator {
+    return this.page.locator('[data-test^="source-picker-checkbox-"]')
   }
 
   get viewer(): Locator {
@@ -76,10 +84,19 @@ export class StudioPanelPage {
   }
 
   async startReport(format: ReportFormat) {
-    await this.createReportTile.click()
+    await this.createTile("report").click()
     await expect(this.createDialog).toBeVisible()
     await this.formatCard(format).click()
+    await this.createSubmit.click()
     await expect(this.viewer).toBeVisible()
+  }
+
+  async startArtifact(type: "flashcards" | "quiz") {
+    await this.createTile(type).click()
+    await expect(this.createDialog).toBeVisible()
+    await expect(this.sourceCheckboxes.first()).toBeChecked()
+    await this.createSubmit.click()
+    await expect(this.createDialog).not.toBeVisible()
   }
 
   async openRowMenu(row: Locator) {

@@ -12,9 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { STUDIO_TYPE_META } from "@/lib/studio/format-meta"
+import type { GeneratableType } from "@/lib/studio/schema"
 import type { StudioArtifact } from "@/lib/studio/service"
 
 import { deleteStudioArtifactAction } from "../actions"
+
+function typeLabel(artifact: StudioArtifact | null): string {
+  if (!artifact) return "Artefakt"
+  return STUDIO_TYPE_META[artifact.type as GeneratableType]?.label ?? "Artefakt"
+}
 
 interface DeleteArtifactDialogProps {
   artifact: StudioArtifact | null
@@ -46,7 +53,7 @@ export function DeleteArtifactDialog({
     <Dialog open={artifact !== null} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" data-test="delete-artifact-dialog">
         <DialogHeader>
-          <DialogTitle>Bericht löschen?</DialogTitle>
+          <DialogTitle>{`${typeLabel(artifact)} löschen?`}</DialogTitle>
           <DialogDescription>
             „{artifact?.title}“ wird dauerhaft gelöscht. Das kann nicht rückgängig
             gemacht werden.

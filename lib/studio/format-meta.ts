@@ -1,4 +1,4 @@
-import type { ReportFormat } from "./schema"
+import type { GeneratableType, ReportFormat } from "./schema"
 
 /**
  * Client-safe UI-Metadaten der 3 Report-Formate (Dialog-Karten, Spec
@@ -20,5 +20,24 @@ export const REPORT_FORMAT_META: Record<
   blog_post: {
     label: "Blog-Post",
     description: "Die wichtigsten Erkenntnisse als gut lesbarer Artikel",
+  },
+}
+
+/** Kachel-/Provisorik-Labels je generierbarem Artefakt-Typ (Studio-Panel). */
+export const STUDIO_TYPE_META: Record<
+  GeneratableType,
+  { label: string; description: string }
+> = {
+  report: {
+    label: "Bericht",
+    description: "Text-Dokument aus deinen Quellen",
+  },
+  flashcards: {
+    label: "Karteikarten",
+    description: "Lernkarten zum Durchblättern",
+  },
+  quiz: {
+    label: "Quiz",
+    description: "Multiple-Choice mit Erklärungen",
   },
 }

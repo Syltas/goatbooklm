@@ -2,12 +2,13 @@
 
 import {
   FileText,
+  HelpCircle,
   Loader2,
   MoreVertical,
   Pencil,
-  Plus,
   RotateCw,
   Trash2,
+  WalletCards,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -20,14 +21,28 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  parseFlashcardsContent,
+  parseQuizContent,
+} from "@/lib/studio/content-schema"
 import { splitLeadingH1 } from "@/lib/studio/context"
-import { REPORT_FORMAT_META } from "@/lib/studio/format-meta"
-import type { ReportFormat } from "@/lib/studio/schema"
+import { REPORT_FORMAT_META, STUDIO_TYPE_META } from "@/lib/studio/format-meta"
+import {
+  GENERATABLE_TYPE_VALUES,
+  type GeneratableType,
+  type ReportFormat,
+} from "@/lib/studio/schema"
 import { STALE_GENERATING_MINUTES, type StudioArtifact } from "@/lib/studio/service"
 import { createClient } from "@/lib/supabase/client"
 
-import { CreateReportDialog } from "./create-report-dialog"
+import type { SourceWithChunkCount } from "../../sources/types"
+import {
+  CreateArtifactDialog,
+  type CreateArtifactRequest,
+} from "./create-artifact-dialog"
 import { DeleteArtifactDialog } from "./delete-artifact-dialog"
+import { FlashcardsViewer } from "./flashcards-viewer"
+import { QuizViewer } from "./quiz-viewer"
 import { RenameArtifactDialog } from "./rename-artifact-dialog"
 import { ReportViewer } from "./report-viewer"
 
@@ -39,6 +54,19 @@ type ViewState =
 interface LiveState {
   format: ReportFormat
   text: string
+}
+
+const TYPE_ICON: Record<GeneratableType, typeof FileText> = {
+  report: FileText,
+  flashcards: WalletCards,
+  quiz: HelpCircle,
+}
+
+/** Pastell-Kacheln gem. DESIGN.md (card-Paletten nur für Grid + Studio-Kacheln). */
+const TYPE_TILE_BG: Record<GeneratableType, string> = {
+  report: "bg-[var(--card-2)]",
+  flashcards: "bg-[var(--card-5)]",
+  quiz: "bg-[var(--card-6)]",
 }
 
 /** Backstop (Spec): `generating` älter als das Stale-Fenster (updated_at)
@@ -64,33 +92,36 @@ function formatDate(iso: string): string {
 
 interface StudioPanelProps {
   notebookId: string
-  /** Live vom Shell-`useSourcesPolling` abgeleitet — 0 ⇒ Format-Karten disabled. */
-  readyCount: number
+  /** Live-gepollter Quellen-State des Shells — trägt Kachel-Disabling und
+   *  die Quellen-Auswahl im Create-Dialog. */
+  sources: SourceWithChunkCount[]
+  /** Explain-Bridge: schickt einen vorbereiteten Prompt in den Chat. */
+  onExplain?: (prompt: string) => void
 }
 
 /**
- * Studio-Panel (docs/specs/studio-quick-wins.md): Kachel „Bericht" +
- * Artefakt-Liste + panel-interner Viewer. Lädt seine Artefakte selbst über
- * den Browser-Supabase-Client (RLS-scoped) — bewusst KEIN
- * `page.tsx`-Prop-Drilling, damit der Diff an Bestandsdateien beim
+ * Studio-Panel (docs/specs/studio-quick-wins.md): Kacheln für Bericht/
+ * Karteikarten/Quiz + Artefakt-Liste + panel-interne Viewer. Lädt seine
+ * Artefakte selbst über den Browser-Supabase-Client (RLS-scoped) — bewusst
+ * KEIN `page.tsx`-Prop-Drilling, damit der Diff an Bestandsdateien beim
  * Panel-Body-Ersatz bleibt (Spec Premise 5).
  */
-export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
+export function StudioPanel({ notebookId, sources, onExplain }: StudioPanelProps) {
   const supabase = useMemo(() => createClient(), [])
   const [artifacts, setArtifacts] = useState<StudioArtifact[] | null>(null)
   const [view, setView] = useState<ViewState>({ mode: "list" })
   const [live, setLive] = useState<LiveState | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
+  const [createType, setCreateType] = useState<GeneratableType | null>(null)
   const [renameTarget, setRenameTarget] = useState<StudioArtifact | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<StudioArtifact | null>(null)
-  /** Nach Stream-Ende: sobald DIESE Row nicht mehr `generating` ist
-   *  (das `after()`-Persist der Route kann dem Stream-Ende nachlaufen),
-   *  in den persistierten Viewer wechseln. */
+  /** Sobald DIESE Row nicht mehr `generating` ist (das `after()`-Persist der
+   *  Route läuft der Response nach), in den persistierten Viewer wechseln. */
   const [pendingViewerId, setPendingViewerId] = useState<string | null>(null)
   /** Session-Zähler: „Zurück" während des Streams entwertet den laufenden
-   *  fetch-Loop, statt ihn abzubrechen — die Generierung läuft server-seitig
-   *  ohnehin zu Ende (`after()`), nur die UI-Übernahme wird gestoppt. */
+   *  fetch-Loop — die Generierung läuft server-seitig ohnehin zu Ende. */
   const streamSessionRef = useRef(0)
+
+  const readySources = sources.filter((source) => source.status === "ready")
 
   const refetch = useCallback(async () => {
     const { data, error } = await supabase
@@ -128,16 +159,17 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
       setView({ mode: "viewer", artifactId: row.id })
     } else {
       setView({ mode: "list" })
-      toast.error(row.error_message ?? "Bericht konnte nicht erstellt werden.")
+      toast.error(row.error_message ?? "Artefakt konnte nicht erstellt werden.")
     }
   }, [artifacts, pendingViewerId])
 
-  async function startGeneration(
-    request: { format: ReportFormat } | { retryArtifactId: string },
+  /** Reports: Text-Stream in den Live-Viewer. */
+  async function startReportStream(
+    body: Record<string, unknown>,
     liveFormat: ReportFormat
   ) {
     const session = ++streamSessionRef.current
-    setCreateOpen(false)
+    setCreateType(null)
     setPendingViewerId(null)
     setLive({ format: liveFormat, text: "" })
     setView({ mode: "live" })
@@ -146,7 +178,7 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
       const response = await fetch("/api/studio/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notebookId, ...request }),
+        body: JSON.stringify({ notebookId, ...body }),
       })
       if (!response.ok || !response.body) {
         const message = await response.text().catch(() => "")
@@ -186,6 +218,59 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
       setLive(null)
       setView({ mode: "list" })
       void refetch()
+    }
+  }
+
+  /** Flashcards/Quiz: 202 + Artefakt-ID sofort, Row generiert im
+   *  Hintergrund — Liste zeigt die Skeleton-Row, `pendingViewerId` öffnet
+   *  den Viewer, sobald sie `ready` ist. */
+  async function startObjectGeneration(body: Record<string, unknown>) {
+    setCreateType(null)
+    try {
+      const response = await fetch("/api/studio/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notebookId, ...body }),
+      })
+      if (!response.ok) {
+        const message = await response.text().catch(() => "")
+        throw new Error(message || "Artefakt konnte nicht erstellt werden.")
+      }
+      const { artifactId } = (await response.json()) as { artifactId: string }
+      setPendingViewerId(artifactId)
+      setView({ mode: "list" })
+      void refetch()
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Artefakt konnte nicht erstellt werden."
+      )
+      void refetch()
+    }
+  }
+
+  function handleCreate(request: CreateArtifactRequest) {
+    const body = {
+      type: request.type,
+      format: request.format,
+      sourceIds: request.sourceIds,
+    }
+    if (request.type === "report") {
+      void startReportStream(body, request.format ?? "briefing_doc")
+    } else {
+      void startObjectGeneration(body)
+    }
+  }
+
+  function handleRetry(artifact: StudioArtifact) {
+    if (artifact.type === "report") {
+      void startReportStream(
+        { retryArtifactId: artifact.id },
+        (artifact.format ?? "briefing_doc") as ReportFormat
+      )
+    } else {
+      void startObjectGeneration({ retryArtifactId: artifact.id })
     }
   }
 
@@ -246,6 +331,21 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
     )
   }
 
+  const sharedDialogs = (
+    <>
+      <RenameArtifactDialog
+        artifact={renameTarget}
+        onOpenChange={(open) => !open && setRenameTarget(null)}
+        onRenamed={handleRenamed}
+      />
+      <DeleteArtifactDialog
+        artifact={deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onDeleted={handleDeleted}
+      />
+    </>
+  )
+
   // --- Viewer-Modi -------------------------------------------------------
 
   if (view.mode === "live" && live) {
@@ -263,25 +363,63 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
   if (view.mode === "viewer") {
     const artifact = artifacts?.find((row) => row.id === view.artifactId)
     if (artifact) {
-      return (
-        <>
+      const onBack = () => setView({ mode: "list" })
+      const menu = artifactMenu(artifact)
+
+      let viewer: React.ReactNode = null
+      if (artifact.type === "report") {
+        viewer = (
           <ReportViewer
             title={artifact.title}
             markdown={reportMarkdown(artifact)}
             streaming={false}
-            onBack={() => setView({ mode: "list" })}
-            menu={artifactMenu(artifact)}
+            onBack={onBack}
+            menu={menu}
           />
-          <RenameArtifactDialog
-            artifact={renameTarget}
-            onOpenChange={(open) => !open && setRenameTarget(null)}
-            onRenamed={handleRenamed}
+        )
+      } else if (artifact.type === "flashcards") {
+        const content = parseFlashcardsContent(artifact.content)
+        viewer = content ? (
+          <FlashcardsViewer
+            title={artifact.title}
+            cards={content.cards}
+            onBack={onBack}
+            menu={menu}
+            onExplain={onExplain}
           />
-          <DeleteArtifactDialog
-            artifact={deleteTarget}
-            onOpenChange={(open) => !open && setDeleteTarget(null)}
-            onDeleted={handleDeleted}
+        ) : null
+      } else if (artifact.type === "quiz") {
+        const content = parseQuizContent(artifact.content)
+        viewer = content ? (
+          <QuizViewer
+            title={artifact.title}
+            questions={content.questions}
+            onBack={onBack}
+            menu={menu}
+            onExplain={onExplain}
           />
+        ) : null
+      }
+
+      if (viewer === null) {
+        // Kaputtes/unbekanntes content-Shape: nicht crashen, zurück zur
+        // Liste mit Hinweis.
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Dieses Artefakt kann nicht angezeigt werden.
+            </p>
+            <Button type="button" variant="outline" onClick={onBack} data-test="viewer-broken-back">
+              Zurück zum Studio
+            </Button>
+          </div>
+        )
+      }
+
+      return (
+        <>
+          {viewer}
+          {sharedDialogs}
         </>
       )
     }
@@ -291,17 +429,24 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
 
   return (
     <div className="flex h-full flex-col" data-test="studio-panel">
-      <div className="shrink-0 p-3">
-        <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="flex w-full items-center gap-2.5 rounded-xl bg-[var(--card-2)] p-3.5 text-left transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          data-test="studio-create-report-tile"
-        >
-          <FileText className="size-4 shrink-0 text-foreground" aria-hidden="true" />
-          <span className="flex-1 text-sm font-medium text-foreground">Bericht</span>
-          <Plus className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        </button>
+      <div className="grid shrink-0 grid-cols-3 gap-2 p-3">
+        {GENERATABLE_TYPE_VALUES.map((type) => {
+          const Icon = TYPE_ICON[type]
+          return (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setCreateType(type)}
+              className={`flex flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${TYPE_TILE_BG[type]}`}
+              data-test={`studio-create-${type}-tile`}
+            >
+              <Icon className="size-4 text-foreground" aria-hidden="true" />
+              <span className="text-xs font-medium text-foreground">
+                {STUDIO_TYPE_META[type].label}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" data-test="studio-artifact-list">
@@ -312,13 +457,14 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
           </div>
         ) : artifacts.length === 0 ? (
           <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-            Noch keine Berichte. Erstelle den ersten aus deinen Quellen.
+            Noch keine Artefakte. Erstelle das erste aus deinen Quellen.
           </p>
         ) : (
           artifacts.map((artifact) => {
             const failed = artifact.status === "failed" || isStaleGenerating(artifact)
             const generating = artifact.status === "generating" && !failed
             const canOpen = artifact.status === "ready"
+            const Icon = TYPE_ICON[artifact.type as GeneratableType] ?? FileText
             return (
               <div
                 key={artifact.id}
@@ -343,7 +489,7 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
                 data-open={canOpen ? "" : undefined}
                 data-test={`artifact-row-${artifact.id}`}
               >
-                <FileText
+                <Icon
                   className="mt-0.5 size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
@@ -384,12 +530,7 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() =>
-                        startGeneration(
-                          { retryArtifactId: artifact.id },
-                          (artifact.format ?? "briefing_doc") as ReportFormat
-                        )
-                      }
+                      onClick={() => handleRetry(artifact)}
                       aria-label={`„${artifact.title}“ erneut erstellen`}
                       data-test="artifact-retry-button"
                     >
@@ -404,22 +545,13 @@ export function StudioPanel({ notebookId, readyCount }: StudioPanelProps) {
         )}
       </div>
 
-      <CreateReportDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        readyCount={readyCount}
-        onSelectFormat={(format) => void startGeneration({ format }, format)}
+      <CreateArtifactDialog
+        type={createType}
+        onOpenChange={(open) => !open && setCreateType(null)}
+        readySources={readySources}
+        onCreate={handleCreate}
       />
-      <RenameArtifactDialog
-        artifact={renameTarget}
-        onOpenChange={(open) => !open && setRenameTarget(null)}
-        onRenamed={handleRenamed}
-      />
-      <DeleteArtifactDialog
-        artifact={deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        onDeleted={handleDeleted}
-      />
+      {sharedDialogs}
     </div>
   )
 }

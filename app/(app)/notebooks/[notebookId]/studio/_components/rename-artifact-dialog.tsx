@@ -12,9 +12,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { STUDIO_TYPE_META } from "@/lib/studio/format-meta"
+import type { GeneratableType } from "@/lib/studio/schema"
 import type { StudioArtifact } from "@/lib/studio/service"
 
 import { renameStudioArtifactAction } from "../actions"
+
+function typeLabel(artifact: StudioArtifact | null): string {
+  if (!artifact) return "Artefakt"
+  return STUDIO_TYPE_META[artifact.type as GeneratableType]?.label ?? "Artefakt"
+}
 
 interface RenameArtifactDialogProps {
   artifact: StudioArtifact | null
@@ -58,7 +65,7 @@ export function RenameArtifactDialog({
     <Dialog open={artifact !== null} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" data-test="rename-artifact-dialog">
         <DialogHeader>
-          <DialogTitle>Bericht umbenennen</DialogTitle>
+          <DialogTitle>{`${typeLabel(artifact)} umbenennen`}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input

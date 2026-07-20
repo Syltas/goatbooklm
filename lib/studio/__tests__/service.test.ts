@@ -34,7 +34,7 @@ function createMockClient(responsesByTable: Record<string, QueryResult[]>) {
       ) => Promise.resolve(nextResult()).then(onFulfilled, onRejected),
     }
 
-    for (const method of ["select", "insert", "update", "delete", "eq", "or", "order"]) {
+    for (const method of ["select", "insert", "update", "delete", "eq", "in", "or", "order"]) {
       chainable[method] = vi.fn((...args: unknown[]) => {
         log.push({ method, args })
         return chainable
@@ -127,36 +127,46 @@ describe("claimRetry", () => {
 })
 
 describe("finalizeReady", () => {
-  it("persistiert truncated nur wenn wahr", async () => {
+  it("persistiert Titel + Content generisch und leert error_message", async () => {
     const { client, callsByTable } = createMockClient({
-      studio_artifacts: [
-        { data: null, error: null },
-        { data: null, error: null },
-      ],
+      studio_artifacts: [{ data: null, error: null }],
     })
     const service = createStudioService({ db: client })
 
     await service.finalizeReady({
       artifactId: "a",
       title: "T",
-      markdown: "Body",
-      truncated: false,
-    })
-    await service.finalizeReady({
-      artifactId: "a",
-      title: "T",
-      markdown: "Body",
-      truncated: true,
+      content: { markdown: "Body" },
     })
 
-    const updates = callsByTable.studio_artifacts.filter((c) => c.method === "update")
-    expect(updates[0]?.args[0]).toMatchObject({ content: { markdown: "Body" } })
-    expect((updates[0]?.args[0] as { content: Record<string, unknown> }).content).not.toHaveProperty(
-      "truncated"
-    )
-    expect(updates[1]?.args[0]).toMatchObject({
-      content: { markdown: "Body", truncated: true },
+    const update = callsByTable.studio_artifacts.find((c) => c.method === "update")
+    expect(update?.args[0]).toMatchObject({
+      status: "ready",
+      title: "T",
+      content: { markdown: "Body" },
+      error_message: null,
     })
+  })
+})
+
+describe("loadReadySources mit Auswahl", () => {
+  it("filtert per .in() auf die gewählten sourceIds", async () => {
+    const { client, callsByTable } = createMockClient({
+      sources: [{ data: [], error: null }],
+    })
+    const service = createStudioService({ db: client })
+    await service.loadReadySources("nb-1", ["s1", "s2"])
+    const inCall = callsByTable.sources.find((c) => c.method === "in")
+    expect(inCall?.args).toEqual(["id", ["s1", "s2"]])
+  })
+
+  it("lässt den Filter bei leerer Auswahl weg", async () => {
+    const { client, callsByTable } = createMockClient({
+      sources: [{ data: [], error: null }],
+    })
+    const service = createStudioService({ db: client })
+    await service.loadReadySources("nb-1", [])
+    expect(callsByTable.sources.find((c) => c.method === "in")).toBeUndefined()
   })
 })
 

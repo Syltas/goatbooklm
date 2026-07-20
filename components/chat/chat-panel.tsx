@@ -26,6 +26,13 @@ interface ChatPanelProps {
    *  transcript is empty, using the live client count rather than the
    *  server-rendered `initialMessages` snapshot. */
   onMessageCountChange?: (count: number) => void
+  /**
+   * Explain-Bridge from the Studio panel (docs/specs/studio-quick-wins.md):
+   * a prepared prompt to send as a user turn. `nonce` makes repeated
+   * identical prompts distinguishable — same change-only pattern as
+   * `historyClearedAt`.
+   */
+  injectedPrompt?: { text: string; nonce: number } | null
 }
 
 /** v1 static, generic suggestions (§6 "Empty-Chat-State", AC-50) — not
@@ -53,6 +60,7 @@ export function ChatPanel({
   onCite,
   historyClearedAt,
   onMessageCountChange,
+  injectedPrompt,
 }: ChatPanelProps) {
   const [input, setInput] = useState("")
 
@@ -95,6 +103,22 @@ export function ChatPanel({
   useEffect(() => {
     onMessageCountChange?.(messages.length)
   }, [messages.length, onMessageCountChange])
+
+  // React only to nonce *changes* (mount must not re-send a stale prompt).
+  // While a turn is already streaming, fall back to pre-filling the input
+  // instead of interleaving a second in-flight request.
+  const lastInjectedNonce = useRef(injectedPrompt?.nonce)
+  useEffect(() => {
+    if (!injectedPrompt || injectedPrompt.nonce === lastInjectedNonce.current) return
+    lastInjectedNonce.current = injectedPrompt.nonce
+    if (disabled) return
+    if (isBusy) {
+      setInput(injectedPrompt.text)
+      return
+    }
+    void sendMessage({ text: injectedPrompt.text })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [injectedPrompt])
 
   function handleSend(text: string) {
     const trimmed = text.trim()
