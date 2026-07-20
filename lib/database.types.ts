@@ -176,6 +176,7 @@ export type Database = {
       }
       sources: {
         Row: {
+          content_hash: string | null
           content_text: string | null
           created_at: string
           error_message: string | null
@@ -190,6 +191,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          content_hash?: string | null
           content_text?: string | null
           created_at?: string
           error_message?: string | null
@@ -204,6 +206,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          content_hash?: string | null
           content_text?: string | null
           created_at?: string
           error_message?: string | null
@@ -220,6 +223,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "sources_notebook_id_fkey"
+            columns: ["notebook_id"]
+            isOneToOne: false
+            referencedRelation: "notebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      studio_artifacts: {
+        Row: {
+          content: Json | null
+          created_at: string
+          error_message: string | null
+          format: string | null
+          id: string
+          notebook_id: string
+          source_ids: string[]
+          status: string
+          title: string
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content?: Json | null
+          created_at?: string
+          error_message?: string | null
+          format?: string | null
+          id?: string
+          notebook_id: string
+          source_ids?: string[]
+          status?: string
+          title: string
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: Json | null
+          created_at?: string
+          error_message?: string | null
+          format?: string | null
+          id?: string
+          notebook_id?: string
+          source_ids?: string[]
+          status?: string
+          title?: string
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "studio_artifacts_notebook_id_fkey"
             columns: ["notebook_id"]
             isOneToOne: false
             referencedRelation: "notebooks"

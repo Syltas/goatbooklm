@@ -23,7 +23,8 @@ import { SourcesPanel } from "../sources/_components/sources-panel"
 import { ChatHeaderMenu } from "./chat-header-menu"
 import { useSourcesPolling } from "../sources/_components/use-sources-polling"
 import type { SourceWithChunkCount } from "../sources/types"
-import { PANEL_LABEL, type PanelKey, StudioPanelBody } from "./panel-placeholders"
+import { StudioPanel } from "../studio/_components/studio-panel"
+import { PANEL_LABEL, type PanelKey } from "./panel-placeholders"
 import { SourceReaderProvider, useSourceReader } from "./source-reader-context"
 
 function CollapseIcon({
@@ -254,7 +255,7 @@ export function NotebookDetailShell({
             onToggle={() => toggle("studio")}
             expandedClassName="hidden w-[300px] shrink-0 md:flex"
           >
-            <StudioPanelBody />
+            <StudioPanel notebookId={notebook.id} readyCount={readyCount} />
           </DesktopPanel>
         </div>
 
@@ -321,7 +322,9 @@ export function NotebookDetailShell({
                     onDeleted={removeSource}
                   />
                 )}
-                {mobilePanel === "studio" && <StudioPanelBody />}
+                {mobilePanel === "studio" && (
+                  <StudioPanel notebookId={notebook.id} readyCount={readyCount} />
+                )}
               </div>
             </div>
           </DialogContent>
