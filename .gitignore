@@ -59,6 +59,9 @@ supabase/.branches
 # Separate prod-build output (never clobbers dev .next)
 /.next-build/
 
+# Stale .next dirs moved aside during builds (throwaway artifacts)
+/.next.stale*/
+
 # Screenshots (annotation captures, QA artifacts, design references).
 # The two mockups under docs/design/ were committed before this rule and stay
 # tracked; `.gitignore` only affects files git does not already know about.
