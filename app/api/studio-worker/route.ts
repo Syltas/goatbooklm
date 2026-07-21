@@ -17,7 +17,7 @@ import {
   STUDIO_AUDIO_VT_SECONDS,
 } from "@/lib/studio/audio-queue"
 import { processStudioAudioTick } from "@/lib/studio/audio-worker"
-import { synthesizeTurn } from "@/lib/studio/elevenlabs"
+import { synthesizeDialogueBlock } from "@/lib/studio/elevenlabs"
 import { concatAudioSegments } from "@/lib/studio/mp3"
 import { createAdminClient } from "@/lib/supabase/admin"
 
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
         })
         return object
       },
-      synthesizeTurn: (input) => synthesizeTurn({ apiKey, ...input }),
+      synthesizeBlock: (input) => synthesizeDialogueBlock({ apiKey, ...input }),
       storage: {
         upload: async (path, data) => {
           const { error } = await admin.storage

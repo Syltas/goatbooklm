@@ -1,17 +1,22 @@
+import type { DialogueTurn } from "./dialogue-blocks"
+
 /**
- * Schlanker ElevenLabs-TTS-Client (docs/specs/studio-audio.md) — REST via
- * fetch, kein SDK. Per-Turn-Synthese mit `previous_text`/`next_text` für
- * Prosodie-Kontinuität über Turn-Grenzen.
+ * Schlanker ElevenLabs-Client (docs/specs/studio-audio.md) — REST via fetch,
+ * kein SDK. Synthese läuft über die Text-to-Dialogue-API mit `eleven_v3`:
+ * beide Stimmen in EINEM Stream pro Block, ElevenLabs macht Turn-Übergänge,
+ * Unterbrechungen und Audio-Tags ([laughs], [sighs], …) selbst.
  *
- * Warum NICHT die Text-to-Dialogue-API: verifiziert 2026-07-20 gegen
- * https://elevenlabs.io/docs/api-reference/text-to-dialogue/convert — sie
- * limitiert auf 2.000 Zeichen GESAMT pro Request. Schon ein „Kurz"-Skript
- * (~4.000 Zeichen) passt nicht; per-Turn-TTS ist der tragfähige Pfad
- * (Spec-OQ1 damit entschieden).
+ * Historie: v1 nutzte per-Turn-TTS mit `eleven_multilingual_v2`, weil die
+ * Dialogue-API auf 2.000 Zeichen GESAMT pro Request limitiert. Der v3-Umbau
+ * (Spike scripts/audio-spike.ts, 2026-07-21) drehte das: Skripte werden in
+ * ~1.800-Zeichen-Blöcke zerlegt (`lib/studio/dialogue-blocks.ts`) und
+ * blockweise synthetisiert. Per-Turn-v3 wäre schlechter — `eleven_v3` lehnt
+ * `previous_text`/`next_text` ab (400 unsupported_model, empirisch), hätte
+ * also gar keine Prosodie-Kontinuität über Turn-Grenzen.
  */
 
 const API_BASE = "https://api.elevenlabs.io/v1"
-const MODEL_ID = "eleven_multilingual_v2"
+const MODEL_ID = "eleven_v3"
 const OUTPUT_FORMAT = "mp3_44100_128"
 
 /**
@@ -57,27 +62,21 @@ function mapError(status: number, body: string): string {
   return "Audio-Erzeugung fehlgeschlagen. Bitte erneut versuchen."
 }
 
-export interface SynthesizeTurnInput {
+export interface SynthesizeDialogueBlockInput {
   apiKey: string
-  speaker: 1 | 2
-  text: string
-  /** Text des vorherigen/nächsten Turns DESSELBEN Sprechers ist nicht nötig —
-   *  ElevenLabs nutzt previous/next als Prosodie-Kontext des Streams. */
-  previousText?: string
-  nextText?: string
-  /**
-   * ISO 639-1 (aus params.language). Wird bewusst NICHT als
-   * `language_code`-Body-Param gesendet: `eleven_multilingual_v2` lehnt den
-   * Param ab (nur Turbo/Flash-Modelle akzeptieren ihn) und erkennt die
-   * Sprache zuverlässig aus dem Text ganzer Sätze. Der Param bleibt im
-   * Input-Shape für einen späteren Modellwechsel.
-   */
-  languageCode: string
+  /** Ein Block aus `buildDialogueBlocks` — Gesamttext ≤ ~1.800 Zeichen. */
+  turns: DialogueTurn[]
 }
 
-export async function synthesizeTurn(input: SynthesizeTurnInput): Promise<Uint8Array> {
-  const voiceId = voiceForSpeaker(input.speaker)
-  const url = `${API_BASE}/text-to-speech/${voiceId}?output_format=${OUTPUT_FORMAT}`
+/**
+ * Synthetisiert einen Dialog-Block als eine MP3. Kein `language_code`-Param:
+ * die Dialogue-API kennt keinen, `eleven_v3` erkennt die Sprache aus dem
+ * Text. Keine `voice_settings`: der Spike lief mit Defaults am besten.
+ */
+export async function synthesizeDialogueBlock(
+  input: SynthesizeDialogueBlockInput
+): Promise<Uint8Array> {
+  const url = `${API_BASE}/text-to-dialogue?output_format=${OUTPUT_FORMAT}`
 
   let response: Response
   try {
@@ -88,10 +87,11 @@ export async function synthesizeTurn(input: SynthesizeTurnInput): Promise<Uint8A
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        text: input.text,
+        inputs: input.turns.map((turn) => ({
+          text: turn.text,
+          voice_id: voiceForSpeaker(turn.speaker),
+        })),
         model_id: MODEL_ID,
-        previous_text: input.previousText,
-        next_text: input.nextText,
       }),
     })
   } catch (err) {

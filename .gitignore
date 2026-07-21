@@ -72,3 +72,6 @@ supabase/.branches
 
 # Session transcripts / chat exports (working artifacts, not source)
 /chat-exports/
+
+# Audio-Spike-Ausgaben (scripts/audio-spike.ts)
+/spike-out/

@@ -14,6 +14,7 @@ import {
   type StudioAudioQueueEntry,
 } from "./audio-queue"
 import { buildSourcesBlock, type ContextSource } from "./context"
+import { buildDialogueBlocks, type DialogueTurn } from "./dialogue-blocks"
 import { ElevenLabsError } from "./elevenlabs"
 
 type StudioArtifactRow = Database["public"]["Tables"]["studio_artifacts"]["Row"]
@@ -26,9 +27,10 @@ type StudioArtifactRow = Database["public"]["Tables"]["studio_artifacts"]["Row"]
  *
  * Phasen: `script` (Claude schreibt + persistiert das Skript, teuerste
  * Einzelphase — wird bei Retry NIE wiederholt, wenn sie fertig war) →
- * `tts` (pro Turn ein Segment, `tts.done` persistiert nach jedem Segment →
- * ein am Zeitbudget abgebrochener Tick setzt exakt dort fort) → Finalisieren
- * (Segmente concat → eine MP3 → `ready`).
+ * `tts` (pro Dialogue-Block ein Segment, `tts.done` persistiert nach jedem
+ * Segment → ein am Zeitbudget abgebrochener Tick setzt exakt dort fort;
+ * Blöcke werden deterministisch aus dem Skript berechnet, Segment-Index =
+ * Block-Index) → Finalisieren (Segmente concat → eine MP3 → `ready`).
  */
 
 export const TICK_BUDGET_MS = 240_000
@@ -45,13 +47,7 @@ export interface AudioWorkerDeps {
     content: AudioContent
     sourcesBlock: string
   }) => Promise<AudioScript>
-  synthesizeTurn: (input: {
-    speaker: 1 | 2
-    text: string
-    previousText?: string
-    nextText?: string
-    languageCode: string
-  }) => Promise<Uint8Array>
+  synthesizeBlock: (input: { turns: DialogueTurn[] }) => Promise<Uint8Array>
   storage: {
     upload: (path: string, data: Uint8Array) => Promise<void>
     download: (path: string) => Promise<Uint8Array>
@@ -169,7 +165,7 @@ async function processJob(
       ...current,
       phase: "tts",
       script,
-      tts: { done: 0, total: script.turns.length },
+      tts: { done: 0, total: buildDialogueBlocks(script.turns).length, unit: "block" },
     }
     await updateContent(deps.db, row.id, current)
   }
@@ -179,29 +175,36 @@ async function processJob(
   }
 
   const script = current.script
-  const turns = script.turns
-  for (let index = current.tts.done; index < turns.length; index++) {
+  const blocks = buildDialogueBlocks(script.turns)
+
+  // Zwischenstand aus der per-Turn-Ära (kein unit-Feld) oder inkonsistente
+  // Block-Zahl → Segmente wären gemischte Einheiten. TTS von vorn; die
+  // Upsert-Semantik der Segment-Uploads überschreibt Altbestand.
+  let startIndex = current.tts.done
+  if (current.tts.unit !== "block" || current.tts.total !== blocks.length) {
+    startIndex = 0
+    current = { ...current, tts: { done: 0, total: blocks.length, unit: "block" } }
+    await updateContent(deps.db, row.id, current)
+  }
+
+  for (let index = startIndex; index < blocks.length; index++) {
     if (overBudget()) return "deferred"
 
-    const turn = turns[index]
-    const segment = await deps.synthesizeTurn({
-      speaker: turn.speaker,
-      text: turn.text,
-      previousText: index > 0 ? turns[index - 1].text : undefined,
-      nextText: index < turns.length - 1 ? turns[index + 1].text : undefined,
-      languageCode: current.params.language,
-    })
+    const segment = await deps.synthesizeBlock({ turns: blocks[index] })
     // Upsert-Semantik: Wiederholung nach Crash überschreibt dasselbe
     // Segment — idempotent.
     await deps.storage.upload(segmentPath(row, index), segment)
 
-    current = { ...current, tts: { done: index + 1, total: turns.length } }
+    current = {
+      ...current,
+      tts: { done: index + 1, total: blocks.length, unit: "block" },
+    }
     await updateContent(deps.db, row.id, current)
   }
 
   // Finalisieren: Segmente einsammeln, konkatenieren, final hochladen.
   const segments: Uint8Array[] = []
-  for (let index = 0; index < turns.length; index++) {
+  for (let index = 0; index < blocks.length; index++) {
     segments.push(await deps.storage.download(segmentPath(row, index)))
   }
   const finalAudio = deps.concatSegments(segments)
@@ -227,7 +230,7 @@ async function processJob(
   // Aufräumen zuletzt — ein Fehler hier darf das ready nicht mehr kippen.
   try {
     await deps.storage.remove(
-      turns.map((_, index) => segmentPath(row, index))
+      blocks.map((_, index) => segmentPath(row, index))
     )
   } catch (cleanupErr) {
     console.error(`[studio-audio-worker] segment cleanup failed for ${row.id}`, cleanupErr)

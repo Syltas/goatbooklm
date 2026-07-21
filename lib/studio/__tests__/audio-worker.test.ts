@@ -51,6 +51,16 @@ const SCRIPT: AudioScript = {
   ],
 }
 
+/** 3 Turns à ~1.700 Zeichen → 3 Dialogue-Blöcke (Block-Limit 1.800). */
+const LONG_SCRIPT: AudioScript = {
+  title: "Lange Episode",
+  turns: [
+    { speaker: 1, text: `${"a".repeat(1_699)}.` },
+    { speaker: 2, text: `${"b".repeat(1_699)}.` },
+    { speaker: 1, text: `${"c".repeat(1_699)}.` },
+  ],
+}
+
 function artifactRow(content: unknown) {
   return {
     id: "art-1",
@@ -74,7 +84,7 @@ function createDeps(overrides: Partial<AudioWorkerDeps> & { db: AudioWorkerDeps[
     readJobs: async () => [{ msgId: 1, readCt: 1, artifactId: "art-1" }],
     deleteJob: vi.fn(async () => undefined),
     generateScript: vi.fn(async () => SCRIPT),
-    synthesizeTurn: vi.fn(async () => new Uint8Array([1, 2, 3])),
+    synthesizeBlock: vi.fn(async () => new Uint8Array([1, 2, 3])),
     storage: {
       upload: vi.fn(async (path: string, data: Uint8Array) => {
         uploads[path] = data
@@ -106,20 +116,18 @@ describe("Message-Guard", () => {
     const { deps } = createDeps({ db })
     const summary = await processStudioAudioTick(deps)
     expect(summary.deletedStale).toBe(1)
-    expect(deps.synthesizeTurn).not.toHaveBeenCalled()
+    expect(deps.synthesizeBlock).not.toHaveBeenCalled()
   })
 })
 
 describe("Skript-Phase → TTS → ready (voller Durchlauf)", () => {
-  it("generiert Skript, synthetisiert alle Turns, finalisiert", async () => {
+  it("generiert Skript, synthetisiert blockweise, finalisiert", async () => {
     const content = { params: { language: "de", length: "kurz" }, phase: "script" }
     const { db, callsByTable } = createMockDb({
       studio_artifacts: [
         { data: artifactRow(content), error: null }, // load
         { data: null, error: null }, // update: phase tts
         { data: null, error: null }, // tts.done = 1
-        { data: null, error: null }, // tts.done = 2
-        { data: null, error: null }, // tts.done = 3
         { data: null, error: null }, // final ready update
       ],
       sources: [
@@ -132,22 +140,12 @@ describe("Skript-Phase → TTS → ready (voller Durchlauf)", () => {
 
     expect(summary.processed).toBe(1)
     expect(deps.generateScript).toHaveBeenCalledTimes(1)
-    expect(deps.synthesizeTurn).toHaveBeenCalledTimes(3)
-    // previous/next-Kontext des mittleren Turns
-    expect(deps.synthesizeTurn).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        previousText: "Erster Beitrag.",
-        nextText: "Dritter Beitrag.",
-      })
-    )
+    // 3 kurze Turns passen in EINEN Dialogue-Block.
+    expect(deps.synthesizeBlock).toHaveBeenCalledTimes(1)
+    expect(deps.synthesizeBlock).toHaveBeenCalledWith({ turns: SCRIPT.turns })
     expect(Object.keys(uploads)).toContain("user-1/art-1/segments/0.mp3")
     expect(Object.keys(uploads)).toContain("user-1/art-1.mp3")
-    expect(deps.storage.remove).toHaveBeenCalledWith([
-      "user-1/art-1/segments/0.mp3",
-      "user-1/art-1/segments/1.mp3",
-      "user-1/art-1/segments/2.mp3",
-    ])
+    expect(deps.storage.remove).toHaveBeenCalledWith(["user-1/art-1/segments/0.mp3"])
     const finalUpdate = callsByTable.studio_artifacts
       .filter((c) => c.method === "update")
       .at(-1)
@@ -164,8 +162,8 @@ describe("Zeitbudget", () => {
     const content = {
       params: { language: "de", length: "kurz" },
       phase: "tts",
-      script: SCRIPT,
-      tts: { done: 0, total: 3 },
+      script: LONG_SCRIPT,
+      tts: { done: 0, total: 3, unit: "block" },
     }
     const { db, callsByTable } = createMockDb({
       studio_artifacts: [
@@ -187,19 +185,19 @@ describe("Zeitbudget", () => {
 
     expect(summary.deferred).toBe(1)
     expect(deps.deleteJob).not.toHaveBeenCalled()
-    expect(deps.synthesizeTurn).toHaveBeenCalledTimes(1)
+    expect(deps.synthesizeBlock).toHaveBeenCalledTimes(1)
     const updates = callsByTable.studio_artifacts.filter((c) => c.method === "update")
     expect(updates.at(-1)?.args[0]).toMatchObject({
-      content: expect.objectContaining({ tts: { done: 1, total: 3 } }),
+      content: expect.objectContaining({ tts: { done: 1, total: 3, unit: "block" } }),
     })
   })
 
-  it("setzt bei tts.done=1 exakt beim zweiten Turn fort", async () => {
+  it("setzt bei tts.done=1 exakt beim zweiten Block fort", async () => {
     const content = {
       params: { language: "de", length: "kurz" },
       phase: "tts",
-      script: SCRIPT,
-      tts: { done: 1, total: 3 },
+      script: LONG_SCRIPT,
+      tts: { done: 1, total: 3, unit: "block" },
     }
     const { db } = createMockDb({
       studio_artifacts: [
@@ -214,11 +212,41 @@ describe("Zeitbudget", () => {
     const summary = await processStudioAudioTick(deps)
 
     expect(summary.processed).toBe(1)
-    expect(deps.synthesizeTurn).toHaveBeenCalledTimes(2)
-    expect(deps.synthesizeTurn).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ text: "Zweiter Beitrag." })
-    )
+    expect(deps.synthesizeBlock).toHaveBeenCalledTimes(2)
+    expect(deps.synthesizeBlock).toHaveBeenNthCalledWith(1, {
+      turns: [LONG_SCRIPT.turns[1]],
+    })
+  })
+
+  it("startet TTS von vorn, wenn der Zwischenstand aus der per-Turn-Ära stammt", async () => {
+    // Kein unit-Feld → Segmente wären per-Turn-Audio; Mischen mit Block-
+    // Segmenten ergäbe kaputtes Audio. Erwartung: Reset auf done=0.
+    const content = {
+      params: { language: "de", length: "kurz" },
+      phase: "tts",
+      script: LONG_SCRIPT,
+      tts: { done: 2, total: 3 },
+    }
+    const { db, callsByTable } = createMockDb({
+      studio_artifacts: [
+        { data: artifactRow(content), error: null },
+        { data: null, error: null }, // reset auf done=0/unit block
+        { data: null, error: null }, // tts.done = 1
+        { data: null, error: null }, // tts.done = 2
+        { data: null, error: null }, // tts.done = 3
+        { data: null, error: null }, // ready
+      ],
+    })
+    const { deps } = createDeps({ db })
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.processed).toBe(1)
+    expect(deps.synthesizeBlock).toHaveBeenCalledTimes(3)
+    const updates = callsByTable.studio_artifacts.filter((c) => c.method === "update")
+    expect(updates[0]?.args[0]).toMatchObject({
+      content: expect.objectContaining({ tts: { done: 0, total: 3, unit: "block" } }),
+    })
   })
 })
 
@@ -250,7 +278,7 @@ describe("Kosten-Cap", () => {
     const summary = await processStudioAudioTick(deps)
 
     expect(summary.failed).toBe(1)
-    expect(deps.synthesizeTurn).not.toHaveBeenCalled()
+    expect(deps.synthesizeBlock).not.toHaveBeenCalled()
     expect(deps.deleteJob).toHaveBeenCalledWith(1)
   })
 })

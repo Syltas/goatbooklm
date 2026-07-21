@@ -31,7 +31,7 @@ export const AUDIO_FORMAT_META: Record<
   },
 }
 
-/** Von `eleven_multilingual_v2` abgedeckte Auswahl (Spec). */
+/** Kuratierte Auswahl (Spec) — `eleven_v3` deckt 70+ Sprachen ab. */
 export const AUDIO_LANGUAGES = [
   { code: "de", label: "Deutsch" },
   { code: "en", label: "Englisch" },
@@ -85,7 +85,9 @@ export const audioScriptSchema = z.object({
       })
     )
     .min(3)
-    .max(60),
+    // Backchannel-Mikro-Turns ("Mhm.", "Warte —") treiben die Turn-Zahl —
+    // das Kosten-Cap bleibt SCRIPT_CHAR_CAP, nicht die Turn-Anzahl.
+    .max(150),
 })
 
 export type AudioScript = z.infer<typeof audioScriptSchema>
@@ -103,7 +105,18 @@ export const audioContentSchema = z.object({
   params: audioParamsSchema,
   phase: z.enum(["script", "tts", "done"]),
   script: audioScriptSchema.optional(),
-  tts: z.object({ done: z.number().int().min(0), total: z.number().int().min(0) }).optional(),
+  tts: z
+    .object({
+      done: z.number().int().min(0),
+      total: z.number().int().min(0),
+      /**
+       * Segment-Einheit. "block" = Dialogue-Block (v3-Umbau). Fehlt das
+       * Feld, stammt der Zwischenstand aus der per-Turn-Ära — der Worker
+       * startet die TTS-Phase dann von vorn statt Segmente zu mischen.
+       */
+      unit: z.literal("block").optional(),
+    })
+    .optional(),
   storage_path: z.string().optional(),
 })
 
