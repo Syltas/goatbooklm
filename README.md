@@ -211,8 +211,6 @@ Dazu Playwright-E2E-Tests (`pnpm exec playwright test`; startet die App selbst a
 
 **Weitere Quellen-Typen.** YouTube-URLs, Audio/Video-Uploads (Whisper-Transkription), OCR für gescannte PDFs. Die Pipeline ist darauf vorbereitet: neuer Extractor in `lib/ingestion/extractors/`, Rest (Chunking, Embedding, Reader) bleibt identisch.
 
-**Vor einem Public Launch** (siehe [`TODOS.md`](TODOS.md)): Realtime-Status statt Polling, Quellen-Auswahl auch im Chat (Studio hat sie schon), Storage-Cleanup bei Account-Löschung, Sharing/Collaboration.
-
 ## Wie das hier gebaut wurde
 
 Das gesamte Projekt entstand in **~3 Tagen** (19.–21.07.2026) in Pair-Sessions mit **Claude Code** — 41 Commits vom Scaffold bis zum parallelisierten Ingestion-Worker. Der Workflow war konsequent **spec-first**:
