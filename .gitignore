@@ -63,6 +63,9 @@ supabase/.branches
 # The two mockups under docs/design/ were committed before this rule and stay
 # tracked; `.gitignore` only affects files git does not already know about.
 *.png
+# …except the design handoff bundle: it's a project deliverable, and its HTML
+# references these screenshots, so they ship with it rather than being stripped.
+!docs/design_handoff_goatbooklm/**/*.png
 
 # E2E screenshot artifacts
 /e2e/.artifacts/
