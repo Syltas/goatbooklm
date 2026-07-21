@@ -35,6 +35,7 @@ import { SourcesPanel } from "../sources/_components/sources-panel"
 import { ChatHeaderMenu } from "./chat-header-menu"
 import { useSourcesPolling } from "../sources/_components/use-sources-polling"
 import type { SourceWithChunkCount } from "../sources/types"
+import { StudioPanel } from "../studio/_components/studio-panel"
 import { PANEL_LABEL, type PanelKey } from "./panel-placeholders"
 import { SourceReaderProvider, useSourceReader } from "./source-reader-context"
 import { useNotebookSummaryPolling } from "./use-notebook-summary-polling"
@@ -277,6 +278,7 @@ function ChatPanelSlot({
   onMobileReaderOpen,
   historyClearedAt,
   onMessageCountChange,
+  injectedPrompt,
 }: {
   notebookId: string
   initialMessages: ChatUIMessage[]
@@ -285,6 +287,7 @@ function ChatPanelSlot({
   onMobileReaderOpen: () => void
   historyClearedAt: number
   onMessageCountChange: (count: number) => void
+  injectedPrompt: { text: string; nonce: number } | null
 }) {
   const { openSource } = useSourceReader()
 
@@ -309,6 +312,7 @@ function ChatPanelSlot({
       onCite={handleCite}
       historyClearedAt={historyClearedAt}
       onMessageCountChange={onMessageCountChange}
+      injectedPrompt={injectedPrompt}
     />
   )
 }
@@ -421,6 +425,22 @@ export function NotebookDetailShell({
   // for `ChatPanel`'s effect to fire again.
   const [historyClearedAt, setHistoryClearedAt] = useState(0)
   const [messageCount, setMessageCount] = useState(initialMessages.length)
+
+  // Studio→Chat Explain-Bridge (docs/specs/studio-quick-wins.md): der
+  // Studio-Viewer reicht einen fertigen Prompt hoch, der Chat sendet ihn
+  // als User-Turn. Auf Mobile zusätzlich das Studio-Sheet schließen, damit
+  // der Chat (dahinter) sichtbar wird.
+  const [explainPrompt, setExplainPrompt] = useState<{
+    text: string
+    nonce: number
+  } | null>(null)
+
+  function handleExplain(text: string) {
+    setExplainPrompt((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+    // Über closeMobilePanel (nicht setMobilePanel direkt): das Studio-Sheet
+    // kann eine Notiz mit ausstehendem Autosave offen haben — flush zuerst.
+    void closeMobilePanel()
+  }
 
   // Lifted above both the desktop and mobile-sheet mounts of the
   // Sources-Panel body (see the two `<SourcesPanel>` call sites below) so
@@ -589,6 +609,7 @@ export function NotebookDetailShell({
                 onMobileReaderOpen={() => setMobilePanel("sources")}
                 historyClearedAt={historyClearedAt}
                 onMessageCountChange={setMessageCount}
+                injectedPrompt={explainPrompt}
               />
             </PanelChrome>
           </Panel>
@@ -615,12 +636,24 @@ export function NotebookDetailShell({
               collapsed={collapsed.studio}
               onToggle={() => toggle("studio")}
             >
-              <NotesPanel
+              {/* Merge core-loop-v2 × studio-quick-wins: der Studio-Slot
+                  trägt BEIDES — Artefakt-Kacheln/-Liste (StudioPanel) und
+                  darunter die Notizen (NotesPanel als `notesSlot`, nur in
+                  der Listen-Ansicht sichtbar; Viewer nehmen den vollen
+                  Slot). NotebookLM-Layout. */}
+              <StudioPanel
                 notebookId={notebook.id}
-                notes={notes}
-                onCreated={addNote}
-                onUpdated={updateNote}
-                onDeleted={removeNote}
+                sources={sources}
+                onExplain={handleExplain}
+                notesSlot={
+                  <NotesPanel
+                    notebookId={notebook.id}
+                    notes={notes}
+                    onCreated={addNote}
+                    onUpdated={updateNote}
+                    onDeleted={removeNote}
+                  />
+                }
               />
             </PanelChrome>
           </Panel>
@@ -692,13 +725,20 @@ export function NotebookDetailShell({
                   />
                 )}
                 {mobilePanel === "studio" && (
-                  <NotesPanel
-                    ref={mobileNotesPanelRef}
+                  <StudioPanel
                     notebookId={notebook.id}
-                    notes={notes}
-                    onCreated={addNote}
-                    onUpdated={updateNote}
-                    onDeleted={removeNote}
+                    sources={sources}
+                    onExplain={handleExplain}
+                    notesSlot={
+                      <NotesPanel
+                        ref={mobileNotesPanelRef}
+                        notebookId={notebook.id}
+                        notes={notes}
+                        onCreated={addNote}
+                        onUpdated={updateNote}
+                        onDeleted={removeNote}
+                      />
+                    }
                   />
                 )}
               </div>

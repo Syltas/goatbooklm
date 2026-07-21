@@ -11,7 +11,11 @@ loadLocalEnv()
 // `reuseExistingServer` silently attach to the wrong app. This project's own
 // dev server runs on 3100 instead, passed through to `next dev` via `pnpm
 // dev -- --port 3100` (package.json's `dev` script itself stays untouched).
-const PORT = 3100
+// `E2E_PORT`-Override: parallele Worktree-Sessions (docs/specs/
+// studio-quick-wins.md, Parallelisierungs-Plan) brauchen je einen eigenen
+// Dev-Server — sonst attached `reuseExistingServer` an den Server der
+// jeweils anderen Session und testet fremden Code.
+const PORT = Number(process.env.E2E_PORT ?? 3100)
 const BASE_URL = `http://localhost:${PORT}`
 
 /**

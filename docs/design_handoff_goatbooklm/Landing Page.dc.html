@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #fdfdfc; }
+  body { font-family: 'Nunito Sans', system-ui, sans-serif; color: #23211e; -webkit-font-smoothing: antialiased; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font-family: inherit; }
+</style>
+</helmet>
+<div data-screen-label="Landing Page" style="background: #fdfdfc; color: #23211e;">
+  <header style="position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; background: rgba(253,253,252,0.9); backdrop-filter: blur(8px); border-bottom: 1px solid #eceae6;">
+    <a href="#" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #23211e;">
+      <svg width="34" height="34" viewBox="0 0 48 48" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="14" fill="#23211e"></rect><path d="M16 15 C13.5 10.5 16 5.5 21 6.5" fill="none" stroke="#fdfdfc" stroke-width="3" stroke-linecap="round"></path><path d="M32 15 C34.5 10.5 32 5.5 27 6.5" fill="none" stroke="#fdfdfc" stroke-width="3" stroke-linecap="round"></path><path d="M24 18.5 C20.5 15.5 15 15.5 12 17.5 V33 C15 31 20.5 31 24 34 C27.5 31 33 31 36 33 V17.5 C33 15.5 27.5 15.5 24 18.5 Z" fill="#fdfdfc"></path><path d="M24 19 V33.5" stroke="#23211e" stroke-width="2" stroke-linecap="round"></path></svg>
+      <span style="font-family: 'Baloo 2', sans-serif; font-weight: 600; font-size: 20px; letter-spacing: -0.01em;">GoatbookLM</span>
+    </a>
+    <nav style="display: flex; align-items: center; gap: 24px;">
+      <a href="#funktionen" style="font-size: 14.5px; font-weight: 600; color: #57534c;" style-hover="color: #23211e;">Funktionen</a>
+      <a href="#so-gehts" style="font-size: 14.5px; font-weight: 600; color: #57534c;" style-hover="color: #23211e;">So geht's</a>
+      <a href="#faq" style="font-size: 14.5px; font-weight: 600; color: #57534c;" style-hover="color: #23211e;">FAQ</a>
+      <a href="#" style="display: inline-flex; align-items: center; height: 38px; padding: 0 18px; border-radius: 9999px; background: #23211e; color: #fdfdfc; font-size: 14.5px; font-weight: 700; text-decoration: none;" style-hover="background: #3c3934; text-decoration: none;">Jetzt starten</a>
+    </nav>
+  </header>
+
+  <section style="max-width: 1080px; margin: 0 auto; padding: 88px 32px 56px; text-align: center;">
+    <div style="display: inline-flex; align-items: center; gap: 8px; border: 1px solid #eceae6; background: #ffffff; border-radius: 9999px; padding: 6px 14px; font-size: 13px; font-weight: 700; color: #57534c;">
+      <span style="width: 8px; height: 8px; border-radius: 9999px; background: #188038;"></span>
+      Open Source — nutzen oder selbst hosten
+    </div>
+    <h1 style="margin: 24px auto 0; max-width: 720px; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 60px; line-height: 1.08; letter-spacing: -0.02em; text-wrap: balance;">Frag einfach deine Dokumente.</h1>
+    <p style="margin: 20px auto 0; max-width: 560px; font-size: 18px; line-height: 1.65; color: #57534c; text-wrap: pretty;">GoatbookLM ist dein offener Recherche-Assistent: PDFs, Texte und Webseiten hochladen, Fragen stellen — und Antworten bekommen, die jede Aussage mit deinen Quellen belegen.</p>
+    <div style="margin-top: 32px; display: flex; justify-content: center; gap: 12px;">
+      <a href="#" style="display: inline-flex; align-items: center; height: 48px; padding: 0 26px; border-radius: 9999px; background: #23211e; color: #fdfdfc; font-size: 16px; font-weight: 700; text-decoration: none;" style-hover="background: #3c3934; text-decoration: none;">Kostenlos starten</a>
+      <a href="#" style="display: inline-flex; align-items: center; height: 48px; padding: 0 26px; border-radius: 9999px; background: #ffffff; border: 1px solid #e2dfda; color: #23211e; font-size: 16px; font-weight: 700; text-decoration: none;" style-hover="background: #f6f5f2; text-decoration: none;">Anmelden</a>
+    </div>
+  </section>
+
+  <section style="max-width: 1080px; margin: 0 auto; padding: 0 32px 88px;">
+    <div style="border: 1px solid #eceae6; border-radius: 20px; background: #ffffff; box-shadow: 0 24px 60px -30px rgba(35,33,30,0.25); overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid #eceae6; background: #faf9f7;">
+        <span style="width: 10px; height: 10px; border-radius: 9999px; background: #e2dfda;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 9999px; background: #e2dfda;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 9999px; background: #e2dfda;"></span>
+        <span style="margin: 0 auto; font-size: 12px; color: #a8a29b; background: #ffffff; border: 1px solid #eceae6; border-radius: 6px; padding: 2px 24px;">goatbook.deine-domain.de</span>
+        <span style="width: 38px;"></span>
+      </div>
+      <div style="display: flex; min-height: 380px;">
+        <div style="width: 230px; flex-shrink: 0; border-right: 1px solid #eceae6; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 6px; height: 32px; border-radius: 9999px; background: #23211e; color: #fdfdfc; font-size: 13px; font-weight: 700;">+ Quellen hinzufügen</div>
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="padding: 8px 10px; border-radius: 10px; background: #f0f4ff;">
+              <p style="margin: 0; font-size: 13px; font-weight: 700;">Interview-Transkripte.pdf</p>
+              <p style="margin: 2px 0 0; font-size: 11.5px; color: #188038;">Bereit · 42 Chunks</p>
+            </div>
+            <div style="padding: 8px 10px; border-radius: 10px;">
+              <p style="margin: 0; font-size: 13px; font-weight: 700;">Mobilitätsbericht (Web)</p>
+              <p style="margin: 2px 0 0; font-size: 11.5px; color: #188038;">Bereit · 18 Chunks</p>
+            </div>
+            <div style="padding: 8px 10px; border-radius: 10px;">
+              <p style="margin: 0; font-size: 13px; font-weight: 700;">Eigene Notizen</p>
+              <p style="margin: 2px 0 0; font-size: 11.5px; color: #188038;">Bereit · 6 Chunks</p>
+            </div>
+          </div>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; padding: 18px 22px; gap: 14px; text-align: left;">
+          <div style="align-self: flex-end; max-width: 70%; border-radius: 14px; background: #f6f5f2; padding: 8px 14px; font-size: 14px;">Was sind die wichtigsten Erkenntnisse aus den Interviews?</div>
+          <div style="max-width: 85%; font-size: 14px; line-height: 1.7;">Die Interviews zeigen drei zentrale Erkenntnisse: Fehlende sichere Radinfrastruktur bremst den Umstieg <span style="color: #2563eb; font-weight: 700; font-size: 11px; vertical-align: super;">1</span>, Pendler priorisieren die ÖPNV-Taktung vor dem Preis <span style="color: #2563eb; font-weight: 700; font-size: 11px; vertical-align: super;">2</span> und multimodale Wege werden akzeptiert, wenn Umstiege planbar sind <span style="color: #2563eb; font-weight: 700; font-size: 11px; vertical-align: super;">3</span>.</div>
+          <div style="margin-top: auto; display: flex; align-items: center; gap: 8px;">
+            <div style="flex: 1; height: 40px; border: 1px solid #eceae6; border-radius: 10px; display: flex; align-items: center; padding: 0 12px; font-size: 13px; color: #a8a29b;">Stellen Sie eine Frage zu Ihren Quellen…</div>
+            <div style="width: 40px; height: 40px; border-radius: 9999px; background: #23211e; display: flex; align-items: center; justify-content: center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fdfdfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="so-gehts" style="max-width: 1080px; margin: 0 auto; padding: 0 32px 88px;">
+    <h2 style="margin: 0 0 40px; text-align: center; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 36px; letter-spacing: -0.01em;">In drei Schritten zur belegten Antwort</h2>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+      <div style="border: 1px solid #eceae6; border-radius: 18px; background: #ffffff; padding: 26px;">
+        <span style="display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 9999px; background: #e8eaf6; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 18px;">1</span>
+        <h3 style="margin: 16px 0 8px; font-size: 19px; font-weight: 700;">Quellen hinzufügen</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.65; color: #57534c;">PDFs hochladen, Text einfügen oder eine URL angeben — dein Notizbuch verarbeitet alles automatisch.</p>
+      </div>
+      <div style="border: 1px solid #eceae6; border-radius: 18px; background: #ffffff; padding: 26px;">
+        <span style="display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 9999px; background: #e6f4ea; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 18px;">2</span>
+        <h3 style="margin: 16px 0 8px; font-size: 19px; font-weight: 700;">Fragen stellen</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.65; color: #57534c;">Chatte ganz normal — GoatbookLM antwortet ausschließlich auf Basis deiner eigenen Quellen.</p>
+      </div>
+      <div style="border: 1px solid #eceae6; border-radius: 18px; background: #ffffff; padding: 26px;">
+        <span style="display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 9999px; background: #fef7e0; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 18px;">3</span>
+        <h3 style="margin: 16px 0 8px; font-size: 19px; font-weight: 700;">Belege prüfen</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.65; color: #57534c;">Jede Aussage trägt ein Zitat <span style="color: #2563eb; font-weight: 700; font-size: 12px; vertical-align: super;">1</span> — ein Klick springt direkt an die Stelle in der Quelle.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="funktionen" style="max-width: 1080px; margin: 0 auto; padding: 0 32px 88px;">
+    <h2 style="margin: 0 0 40px; text-align: center; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 36px; letter-spacing: -0.01em;">Alles drin, nichts drumherum</h2>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+      <div style="border-radius: 18px; background: #e8eaf6; padding: 28px;">
+        <h3 style="margin: 0 0 8px; font-size: 19px; font-weight: 700;">Deine Quellen</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.65; color: rgba(35,33,30,0.75);">PDF, Text und Web in einem Notizbuch. Der Status jeder Quelle ist jederzeit sichtbar — inklusive Reader-Modus zum Nachlesen.</p>
+      </div>
+      <div style="border-radius: 18px; background: #e6f4ea; padding: 28px;">
+        <h3 style="margin: 0 0 8px; font-size: 19px; font-weight: 700;">Chat, der nichts erfindet</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.65; color: rgba(35,33,30,0.75);">Antworten sind streng an deine Quellen gebunden. Ohne Beleg gibt es eine ehrliche Kennzeichnung statt Halluzination.</p>
+      </div>
+      <div style="border-radius: 18px; background: #fef7e0; padding: 28px;">
+        <h3 style="margin: 0 0 8px; font-size: 19px; font-weight: 700;">Zitate zum Anklicken</h3>
+        <p style="margin: 0; font-size: 15px; line-height: 1.65; color: rgba(35,33,30,0.75);">Jede Zahl im Text ist ein Sprung zur Original-Passage — markiert und hervorgehoben, damit du sofort prüfen kannst.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="max-width: 1080px; margin: 0 auto; padding: 0 32px 88px;">
+    <div style="border-radius: 24px; background: #23211e; color: #fdfdfc; padding: 56px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 48px; align-items: center;">
+      <div>
+        <h2 style="margin: 0 0 16px; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 34px; letter-spacing: -0.01em; line-height: 1.15;">Einfach loslegen — oder selbst hosten.</h2>
+        <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.7; color: rgba(253,253,252,0.72);">Registriere dich und leg direkt los. Und weil GoatbookLM Open Source ist, kannst du es jederzeit auch komplett auf deiner eigenen Infrastruktur betreiben — du entscheidest, wo deine Dokumente liegen.</p>
+        <a href="#" style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 22px; border-radius: 9999px; background: #fdfdfc; color: #23211e; font-size: 15px; font-weight: 700; text-decoration: none;" style-hover="background: #eceae6; text-decoration: none;">Auf GitHub ansehen</a>
+      </div>
+      <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px;">
+        <li style="display: flex; align-items: center; gap: 12px; font-size: 15.5px; font-weight: 600;"><span style="width: 22px; height: 22px; border-radius: 9999px; background: rgba(253,253,252,0.12); display: inline-flex; align-items: center; justify-content: center; font-size: 13px;">✓</span>Sofort starten — Konto anlegen, fertig</li>
+        <li style="display: flex; align-items: center; gap: 12px; font-size: 15.5px; font-weight: 600;"><span style="width: 22px; height: 22px; border-radius: 9999px; background: rgba(253,253,252,0.12); display: inline-flex; align-items: center; justify-content: center; font-size: 13px;">✓</span>Quelloffener Code, MIT-Lizenz</li>
+        <li style="display: flex; align-items: center; gap: 12px; font-size: 15.5px; font-weight: 600;"><span style="width: 22px; height: 22px; border-radius: 9999px; background: rgba(253,253,252,0.12); display: inline-flex; align-items: center; justify-content: center; font-size: 13px;">✓</span>Optional self-hosted auf deinem Server</li>
+        <li style="display: flex; align-items: center; gap: 12px; font-size: 15.5px; font-weight: 600;"><span style="width: 22px; height: 22px; border-radius: 9999px; background: rgba(253,253,252,0.12); display: inline-flex; align-items: center; justify-content: center; font-size: 13px;">✓</span>Keine Tracker, keine Werbung</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="faq" style="max-width: 720px; margin: 0 auto; padding: 0 32px 88px;">
+    <h2 style="margin: 0 0 32px; text-align: center; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 36px; letter-spacing: -0.01em;">Häufige Fragen</h2>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <sc-for list="{{ faqs }}" as="faq" hint-placeholder-count="4">
+        <div style="border: 1px solid #eceae6; border-radius: 14px; background: #ffffff; overflow: hidden;">
+          <button onClick="{{ faq.toggle }}" style="display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: transparent; border: none; cursor: pointer; text-align: left; font-size: 16px; font-weight: 700; color: #23211e;">
+            {{ faq.q }}
+            <span style="flex-shrink: 0; font-size: 18px; color: #a8a29b; transform: {{ faq.chevron }}; transition: transform .15s;">⌄</span>
+          </button>
+          <sc-if value="{{ faq.open }}" hint-placeholder-val="{{ false }}">
+            <p style="margin: 0; padding: 0 20px 18px; font-size: 15px; line-height: 1.7; color: #57534c;">{{ faq.a }}</p>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="max-width: 1080px; margin: 0 auto; padding: 0 32px 96px; text-align: center;">
+    <h2 style="margin: 0 0 12px; font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 40px; letter-spacing: -0.015em;">Bereit? Die Ziege wartet. 🐐</h2>
+    <p style="margin: 0 0 28px; font-size: 17px; color: #57534c;">Kostenlos, quelloffen und in wenigen Minuten aufgesetzt.</p>
+    <a href="#" style="display: inline-flex; align-items: center; height: 52px; padding: 0 32px; border-radius: 9999px; background: #23211e; color: #fdfdfc; font-size: 17px; font-weight: 700; text-decoration: none;" style-hover="background: #3c3934; text-decoration: none;">Jetzt starten</a>
+  </section>
+
+  <footer style="border-top: 1px solid #eceae6; background: #faf9f7;">
+    <div style="max-width: 1080px; margin: 0 auto; padding: 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <svg width="26" height="26" viewBox="0 0 48 48" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="14" fill="#23211e"></rect><path d="M16 15 C13.5 10.5 16 5.5 21 6.5" fill="none" stroke="#fdfdfc" stroke-width="3" stroke-linecap="round"></path><path d="M32 15 C34.5 10.5 32 5.5 27 6.5" fill="none" stroke="#fdfdfc" stroke-width="3" stroke-linecap="round"></path><path d="M24 18.5 C20.5 15.5 15 15.5 12 17.5 V33 C15 31 20.5 31 24 34 C27.5 31 33 31 36 33 V17.5 C33 15.5 27.5 15.5 24 18.5 Z" fill="#fdfdfc"></path><path d="M24 19 V33.5" stroke="#23211e" stroke-width="2" stroke-linecap="round"></path></svg>
+        <span style="font-family: 'Baloo 2', sans-serif; font-weight: 600; font-size: 16px;">GoatbookLM</span>
+        <span style="font-size: 13.5px; color: #a8a29b;">© 2026</span>
+      </div>
+      <nav style="display: flex; align-items: center; gap: 20px;">
+        <a href="#" style="font-size: 14px; font-weight: 600; color: #57534c;" style-hover="color: #23211e;">GitHub</a>
+        <a href="#" style="font-size: 14px; font-weight: 600; color: #57534c;" style-hover="color: #23211e;">Anmelden</a>
+        <a href="Impressum.dc.html" style="font-size: 14px; font-weight: 600; color: #57534c;" style-hover="color: #23211e;">Impressum</a>
+      </nav>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showEmojiCta&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { open: 0 };
+  faqData = [
+    { q: "Was kostet GoatbookLM?", a: "Die Nutzung ist kostenlos — einfach registrieren und loslegen. Wer möchte, kann GoatbookLM als Open-Source-Software auch selbst hosten und zahlt dann nur die eigene Infrastruktur." },
+    { q: "Wo liegen meine Dokumente?", a: "In der gehosteten Version sicher in unserer Datenbank — ohne Tracker und ohne Weitergabe an Dritte. Beim Self-Hosting liegen sie komplett auf deinem eigenen Server." },
+    { q: "Welche Quellen kann ich hinzufügen?", a: "PDFs, eingefügten Text und Webseiten per URL. Alle Quellen werden automatisch verarbeitet und stehen danach im Chat und Reader-Modus zur Verfügung." },
+    { q: "Erfindet die KI Antworten?", a: "Antworten sind streng an deine Quellen gebunden. Aussagen ohne Beleg werden sichtbar als „Nicht quellenbelegt“ markiert — statt still zu halluzinieren." },
+    { q: "Warum eine Ziege?", a: "GOAT — Greatest Of All Time. Außerdem frisst eine Ziege bekanntlich alles: PDFs, Texte, Webseiten." },
+  ];
+  renderVals() {
+    return {
+      faqs: this.faqData.map((f, i) => ({
+        q: f.q, a: f.a,
+        open: this.state.open === i,
+        chevron: this.state.open === i ? "rotate(180deg)" : "rotate(0deg)",
+        toggle: () => this.setState({ open: this.state.open === i ? -1 : i }),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

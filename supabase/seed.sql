@@ -39,3 +39,16 @@ on conflict (id) do update set
   url = excluded.url,
   secret = excluded.secret,
   updated_at = now();
+
+-- Studio-Audio worker config (docs/specs/studio-audio.md) — gleiche Mechanik
+-- wie oben: Secret frisch pro Reset, URL auf den lokalen Dev-Server.
+insert into public.studio_worker_config (id, url, secret)
+values (
+  true,
+  'http://host.docker.internal:3100/api/studio-worker',
+  gen_random_uuid()::text
+)
+on conflict (id) do update set
+  url = excluded.url,
+  secret = excluded.secret,
+  updated_at = now();

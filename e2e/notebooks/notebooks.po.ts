@@ -104,6 +104,19 @@ export class NotebooksPage {
     return testId.replace("notebook-card-link-", "")
   }
 
+  /** Titel-basierter Lookup — robust gegen Leichen-Notebooks aus zuvor
+   *  fehlgeschlagenen Specs desselben Laufs (der Test-User wird erst im
+   *  global-teardown geräumt). */
+  async notebookIdByTitle(title: string): Promise<string> {
+    const link = this.cardLinks.filter({ hasText: title }).first()
+    await expect(link).toBeVisible()
+    const testId = await link.getAttribute("data-test")
+    if (!testId) {
+      throw new Error("notebook card link is missing its data-test attribute")
+    }
+    return testId.replace("notebook-card-link-", "")
+  }
+
   async openNotebook(id: string) {
     await this.cardLink(id).click()
   }

@@ -20,23 +20,32 @@
 
 import { execFileSync } from "node:child_process"
 
-const url = process.env.INGESTION_WORKER_URL
-if (!url) {
-  // Nothing to do — seed.sql's own 3100 default already stands.
-  process.exit(0)
+// Merge studio-quick-wins: gleiche Mechanik für BEIDE Worker-Config-Tabellen
+// (studio_worker_config kam mit docs/specs/studio-audio.md dazu).
+const overrides = [
+  { env: "INGESTION_WORKER_URL", table: "ingestion_worker_config" },
+  { env: "STUDIO_WORKER_URL", table: "studio_worker_config" },
+]
+
+for (const { env, table } of overrides) {
+  const url = process.env[env]
+  if (!url) {
+    // Nothing to do — seed.sql's own 3100 default already stands.
+    continue
+  }
+
+  // Single-quote SQL string literal, with embedded single quotes doubled —
+  // standard SQL escaping, not a template/ORM concern.
+  const escaped = url.replace(/'/g, "''")
+
+  execFileSync(
+    "supabase",
+    [
+      "db",
+      "query",
+      "--local",
+      `update public.${table} set url = '${escaped}' where id = true;`,
+    ],
+    { stdio: "inherit" }
+  )
 }
-
-// Single-quote SQL string literal, with embedded single quotes doubled —
-// standard SQL escaping, not a template/ORM concern.
-const escaped = url.replace(/'/g, "''")
-
-execFileSync(
-  "supabase",
-  [
-    "db",
-    "query",
-    "--local",
-    `update public.ingestion_worker_config set url = '${escaped}' where id = true;`,
-  ],
-  { stdio: "inherit" }
-)
