@@ -53,26 +53,18 @@ export const runtime = "nodejs"
  */
 const CHAT_MODEL_ID = "claude-sonnet-5"
 
-const TOP_K = 8
+// Multi-granularity retrieval: the hard 0.35 cosine gate is GONE. A broad
+// overview question ("worum geht es in den Quellen?") legitimately scores below
+// any per-chunk threshold, so instead of gating we over-fetch a candidate pool
+// (chunks + doc-level summaries), merge it, and hand the top CONTEXT_TOP_K to
+// the model — the grounding prompt (rule 3) is the sole refusal mechanism.
+const CHUNK_CANDIDATES = 20
+const SUMMARY_CANDIDATES = 4
+const CONTEXT_TOP_K = 12
 const HISTORY_WINDOW = 6
-const DEFAULT_MIN_SIMILARITY = 0.35
-
-/**
- * Review-Fix L4 — `CHAT_MIN_SIMILARITY` is an operator-set env var, so it
- * must be parsed defensively rather than trusted: `Number(undefined)` is
- * harmless (`??` already covers "unset"), but `Number("")`/`Number("abc")`
- * is `NaN`, and an out-of-[0,1]-range value (e.g. "2", "-1") is a valid
- * number yet nonsensical as a cosine-similarity cutoff — `match_chunks`
- * would then either reject every chunk or accept everything. Any of those
- * cases silently falls back to `DEFAULT_MIN_SIMILARITY`, never crashes the
- * request or emits a bogus threshold to the retrieval RPC.
- */
-function parseMinSimilarity(raw: string | undefined): number {
-  if (raw === undefined) return DEFAULT_MIN_SIMILARITY
-  const parsed = Number.parseFloat(raw)
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) return DEFAULT_MIN_SIMILARITY
-  return parsed
-}
+// No similarity floor: match_chunks returns its top CHUNK_CANDIDATES by
+// distance regardless of score (0 keeps everything with non-negative cosine).
+const MIN_SIMILARITY = 0
 
 export async function POST(request: Request) {
   let body: unknown
@@ -102,8 +94,8 @@ export async function POST(request: Request) {
     db: supabase,
     embed: (text) => embedQuery(defaultQueryEmbeddingModel, text),
     config: {
-      topK: TOP_K,
-      minSimilarity: parseMinSimilarity(process.env.CHAT_MIN_SIMILARITY),
+      topK: CHUNK_CANDIDATES,
+      minSimilarity: MIN_SIMILARITY,
       historyWindow: HISTORY_WINDOW,
     },
   })
@@ -156,30 +148,32 @@ export async function POST(request: Request) {
   // from the compiler's static perspective.
   let chunks: RetrievedChunk[]
   try {
-    chunks = await service.retrieve(notebookId, queryEmbedding)
+    // Multi-granularity retrieval (chat-retrieval-rerank Phase 1): chunk hits
+    // AND doc-level summaries, fetched in parallel and merged into one
+    // candidate pool ordered by cosine similarity desc, capped at
+    // CONTEXT_TOP_K. Both sides embed with the SAME model, so their scores are
+    // directly comparable and a plain cosine sort orders the merged pool. The
+    // doc summaries are what let an overview question retrieve a source no
+    // single dense chunk matches.
+    const [chunkHits, summaryHits] = await Promise.all([
+      service.retrieve(notebookId, queryEmbedding),
+      service.retrieveSummaries(notebookId, queryEmbedding, SUMMARY_CANDIDATES),
+    ])
+    chunks = [...chunkHits, ...summaryHits]
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, CONTEXT_TOP_K)
   } catch (err) {
-    console.error("[chat] retrieve (match_chunks) failed", err)
+    console.error("[chat] retrieve (match_chunks/match_source_summaries) failed", err)
     return textError("Suche fehlgeschlagen. Bitte erneut versuchen.", 502)
   }
 
-  // Gate 2b (§4 Schicht 2) — 0 chunks over the similarity threshold ⇒ no LLM
-  // call, deterministic refusal (AC-H1/AC-B3).
-  if (chunks.length === 0) {
-    // Review-Fix L5 — same "Antwort > Persistenz" reasoning as the 2a gate
-    // above.
-    try {
-      await service.persistTurn({
-        notebookId,
-        userId: user.id,
-        question,
-        assistantContent: NO_COVERAGE_MESSAGE,
-        citations: [],
-      })
-    } catch (err) {
-      console.error("[chat] persistTurn failed for NO_COVERAGE_MESSAGE gate", err)
-    }
-    return gateResponse(NO_COVERAGE_MESSAGE)
-  }
+  // chat-retrieval-rerank Phase 1: the deterministic Gate 2b (0 chunks over a
+  // 0.35 cosine floor ⇒ canned refusal) is REMOVED. Retrieval now always hands
+  // the model its top candidates and the grounding prompt (rule 3) decides
+  // coverage — an overview question no single chunk matches can be answered
+  // from a doc summary, a genuinely off-topic question is refused by the model
+  // with the same NO_COVERAGE sentence. An empty pool ⇒ empty <sources> ⇒ the
+  // model refuses via rule 3, so no separate deterministic gate is needed here.
 
   // §3.4 — `match_chunks` doesn't return a title (or type); join both here
   // (composition site responsibility per `PromptChunk`'s docstring,

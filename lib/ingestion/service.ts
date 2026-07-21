@@ -14,6 +14,7 @@ import {
 } from "./formats"
 import { sha256Hex, sha256HexOfText } from "./hash"
 import { FORMAT_MESSAGES, INGESTION_MESSAGES } from "./messages"
+import { sanitizeUnicode } from "./sanitize"
 import { isStalePending, isStaleProcessing } from "./source-status"
 
 export type Source = Database["public"]["Tables"]["sources"]["Row"]
@@ -142,6 +143,16 @@ export interface IngestionDeps {
   extractWebText: (html: string, url: string) => { text: string; title?: string }
   chunkText: (text: string) => Chunk[]
   embedChunks: (texts: string[]) => Promise<number[][]>
+  /**
+   * Generates a short German doc-level summary of one source's extracted
+   * text (multi-granularity retrieval, chat-retrieval-rerank Phase 1).
+   * Injected, not a direct `generateText`/`anthropic()` import, so the
+   * service stays unit-testable with a stub — same rule as `embedChunks`.
+   * Its failure is never fatal to ingestion (see `runIngestionJob`): a source
+   * with no summary just isn't a doc-level retrieval candidate, its chunks
+   * still are.
+   */
+  summarizeDoc: (text: string) => Promise<string>
   downloadStorageFile: (path: string) => Promise<Uint8Array>
   deleteStorageFile: (path: string) => Promise<void>
   /** Eng-Review M2: does a Storage object at this path actually exist? Used
@@ -163,6 +174,18 @@ export interface IngestionDeps {
  *  survive a slow connection or a brief tab switch), short enough that a URL
  *  copied out of devtools stops working quickly. */
 const SIGNED_URL_TTL_SECONDS = 300
+
+/**
+ * Max chunk rows per `insert` call in `runIngestionJob`. Each row carries a
+ * full embedding vector (1536 floats as pgvector text) plus the chunk's
+ * content and metadata, so a single bulk insert of every chunk in a large
+ * source could push one request's payload past what PostgREST/the
+ * underlying connection would accept, failing persistence outright. 500 is
+ * comfortably under any such limit while still keeping the number of
+ * round-trips small for the common case (most sources chunk to well under
+ * 500 rows and finish in one batch).
+ */
+const CHUNK_INSERT_BATCH_SIZE = 500
 
 export function createIngestionService(deps: IngestionDeps) {
   return new IngestionService(deps)
@@ -282,7 +305,13 @@ class IngestionService {
     title: string
     text: string
   }): Promise<Source> {
-    const contentHash = await sha256HexOfText(data.text)
+    // Unlike file/web sources (sanitized in `runIngestionJob` after
+    // extraction), pasted text is persisted right here at creation time — a
+    // U+0000 in it would fail this INSERT with a raw Postgres error before
+    // the worker ever runs. Hash the sanitized text too, so the worker's
+    // `reconcileContentHash` over the stored `content_text` stays a no-op.
+    const text = sanitizeUnicode(data.text)
+    const contentHash = await sha256HexOfText(text)
 
     const existing = await this.findDuplicateByHash(data.notebookId, contentHash)
     if (existing) throw new DuplicateSourceError(existing.title, "Quelle")
@@ -292,7 +321,7 @@ class IngestionService {
       user_id: data.userId,
       type: "text",
       title: data.title,
-      content_text: data.text,
+      content_text: text,
       content_hash: contentHash,
       status: "pending",
     }
@@ -371,7 +400,15 @@ class IngestionService {
 
     try {
       const extraction = await this.extractContent(source)
-      const chunks = this.deps.chunkText(extraction.contentText)
+      // Postgres rejects U+0000 (and lone surrogates) anywhere in a
+      // text/jsonb value — one unmapped-glyph null char from pdf.js used to
+      // fail the entire chunk insert as `persistFailed`. Sanitized ONCE here
+      // so every downstream persistence of this text (chunk content,
+      // `sources.content_text`, the doc summary) sees the same clean string;
+      // the replacement is length-preserving, so `pageOffsets` and chunk
+      // char offsets computed against this text stay valid (see sanitize.ts).
+      const contentText = sanitizeUnicode(extraction.contentText)
+      const chunks = this.deps.chunkText(contentText)
 
       if (chunks.length === 0) {
         throw new IngestionError(INGESTION_MESSAGES.noReadableText)
@@ -380,7 +417,16 @@ class IngestionService {
       let embeddings: number[][]
       try {
         embeddings = await this.deps.embedChunks(chunks.map((c) => c.content))
-      } catch {
+      } catch (error) {
+        // The user-facing `error_message` stays the fixed German matrix string,
+        // but the real provider error (OpenAI 400 payload-too-large, 429 rate
+        // limit, 401 bad key, network) is logged here so it is actually
+        // diagnosable — the previous bare `catch {}` discarded it, collapsing
+        // every distinct embedding failure into one opaque "retry" message.
+        console.error(
+          `[ingestion] embedChunks failed for source ${source.id} (${chunks.length} chunks):`,
+          error
+        )
         throw new IngestionError(INGESTION_MESSAGES.embedFailed)
       }
 
@@ -408,21 +454,62 @@ class IngestionService {
         .eq("source_id", source.id)
       if (preDeleteError) throw preDeleteError
 
-      const { error: insertError } = await this.client.from("chunks").insert(rows)
+      // Batched, sequential insert rather than one bulk statement: each row
+      // carries a full embedding vector plus chunk text/metadata, and a
+      // large source (hundreds+ chunks) pushed a single insert's payload
+      // past what PostgREST/the DB would accept, failing the whole job with
+      // `persistFailed` even though every individual chunk was well-formed.
+      // `CHUNK_INSERT_BATCH_SIZE` keeps each request's payload bounded;
+      // `rows` (and therefore each batch) stays in `chunk_index` order since
+      // it was built with `chunks.map`, so this changes nothing about chunk
+      // ordering — only how many rows go over the wire per request.
+      for (let i = 0; i < rows.length; i += CHUNK_INSERT_BATCH_SIZE) {
+        const batch = rows.slice(i, i + CHUNK_INSERT_BATCH_SIZE)
+        const { error: insertError } = await this.client.from("chunks").insert(batch)
 
-      if (insertError) {
-        // Rollback-by-delete (§4 Punkt 3): the atomic single-statement
-        // insert above should mean nothing landed anyway, but this makes
-        // the "no partial chunks survive a failed persist" guarantee
-        // explicit and testable regardless of driver/transaction behavior.
-        await this.client.from("chunks").delete().eq("source_id", source.id)
-        throw new IngestionError(INGESTION_MESSAGES.persistFailed)
+        if (insertError) {
+          // Same rule as the embedChunks catch above: the user sees the fixed
+          // matrix string, but the REAL PostgREST/Postgres error must be
+          // logged or the failure is undiagnosable — the U+0000 root cause
+          // ("unsupported Unicode escape sequence") hid behind a silently
+          // swallowed insertError here for days.
+          console.error(
+            `[ingestion] chunk insert failed for source ${source.id} (batch at ${i}, ${batch.length} rows):`,
+            insertError
+          )
+          // Rollback-by-delete (§4 Punkt 3): a batch failing partway through
+          // can leave earlier batches already persisted, so the rollback
+          // still has to sweep ALL of this source's chunks (not just the
+          // failed batch) to keep the "no partial chunks survive a failed
+          // persist" guarantee intact.
+          await this.client.from("chunks").delete().eq("source_id", source.id)
+          throw new IngestionError(INGESTION_MESSAGES.persistFailed)
+        }
+      }
+
+      // Per-doc summary (multi-granularity retrieval, chat-retrieval-rerank
+      // Phase 1): generate + embed a doc-level summary so overview/aggregation
+      // questions retrieve this source even when no single dense chunk matches.
+      // Non-fatal by design — a failure here leaves summary/summary_embedding
+      // null; the source is still `ready` and its chunks are still retrievable.
+      let summary: string | null = null
+      let summaryEmbedding: number[] | null = null
+      try {
+        const generated = (await this.deps.summarizeDoc(contentText)).trim()
+        if (generated.length > 0) {
+          summary = generated
+          summaryEmbedding = (await this.deps.embedChunks([generated]))[0] ?? null
+        }
+      } catch (error) {
+        console.error(`[ingestion] per-doc summary failed for source ${source.id}:`, error)
       }
 
       const updatePayload: SourceUpdate = {
         status: "ready",
         error_message: null,
-        content_text: extraction.contentText,
+        content_text: contentText,
+        summary,
+        summary_embedding: summaryEmbedding ? toPgVector(summaryEmbedding) : null,
       }
       // AC-16: only backfill the title from extraction when the source is
       // still carrying the hostname fallback createWebSource assigned it

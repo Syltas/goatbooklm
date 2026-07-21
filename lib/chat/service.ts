@@ -153,6 +153,42 @@ class ChatService {
     }))
   }
 
+  /**
+   * Doc-level retrieval via `match_source_summaries` (chat-retrieval-rerank
+   * Phase 1) — the summary counterpart to `retrieve`. Returns the top-`count`
+   * per-doc summaries by cosine (NO similarity gate), shaped as `RetrievedChunk`
+   * so the route merges them into one candidate pool with chunk hits.
+   * `chunkId`/`chunkIndex` are `null` (a summary has no `chunks` row) and
+   * `metadata` is `{}` (whole-doc overview, no page/char offsets) — both are
+   * the discriminators the citation/hydrate path keys on for a summary.
+   */
+  async retrieveSummaries(
+    notebookId: string,
+    queryEmbedding: number[],
+    count: number
+  ): Promise<RetrievedChunk[]> {
+    const { data, error } = await this.client.rpc("match_source_summaries", {
+      p_notebook_id: notebookId,
+      p_query_embedding: toPgVector(queryEmbedding),
+      p_match_count: count,
+    })
+
+    if (error) throw error
+
+    return (data ?? [])
+      .filter((row): row is typeof row & { summary: string } =>
+        typeof row.summary === "string" && row.summary.trim().length > 0
+      )
+      .map((row) => ({
+        chunkId: null,
+        sourceId: row.source_id,
+        content: row.summary,
+        chunkIndex: null,
+        similarity: row.similarity,
+        metadata: {},
+      }))
+  }
+
   // ---------------------------------------------------------------------
   // Persistenz (specs §8, DE-7)
   // ---------------------------------------------------------------------

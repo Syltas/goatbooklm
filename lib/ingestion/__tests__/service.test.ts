@@ -115,6 +115,7 @@ function createDeps(
     extractWebText: vi.fn(),
     chunkText: vi.fn(),
     embedChunks: vi.fn(),
+    summarizeDoc: vi.fn().mockResolvedValue("Doc-Zusammenfassung."),
     downloadStorageFile: vi.fn(),
     deleteStorageFile: vi.fn(),
     storageFileExists: vi.fn().mockResolvedValue(true),
@@ -205,6 +206,31 @@ describe("createIngestionService", () => {
       expect(result).toEqual(row)
       expect(from).toHaveBeenCalledWith("sources")
       expect(enqueueJob).toHaveBeenCalledWith(SOURCE_ID)
+    })
+
+    it("sanitizes pasted text (U+0000 / lone surrogates) before hashing and inserting", async () => {
+      const row = makeSource()
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: null, error: null }, // dedupe pre-check: no existing match
+          { data: row, error: null }, // insert + select
+        ],
+      })
+      const service = createIngestionService(createDeps(client))
+
+      await service.createTextSource({
+        notebookId: NOTEBOOK_ID,
+        userId: USER_ID,
+        title: "Testquelle",
+        text: "Hallo\u0000 Welt\uD800!",
+      })
+
+      const insertCall = callsByTable.sources.find((c) => c.method === "insert")
+      const payload = insertCall!.args[0] as { content_text: string; content_hash: string }
+      expect(payload.content_text).toBe("Hallo� Welt�!")
+      // The hash covers the SANITIZED text, so the worker's
+      // reconcileContentHash over the stored content_text stays a no-op.
+      expect(payload.content_hash).toBe(await sha256HexOfText("Hallo� Welt�!"))
     })
 
     it("error path: throws the Supabase error and does not enqueue", async () => {
@@ -482,6 +508,55 @@ describe("createIngestionService", () => {
       expect(insertCall).toBeDefined()
       const insertedRows = insertCall!.args[0] as unknown[]
       expect(insertedRows).toHaveLength(chunks.length)
+    })
+
+    it("sanitizes U+0000 / lone surrogates out of extracted text before chunking and persisting (Postgres rejects them)", async () => {
+      // pdf.js emits U+0000 for glyphs without a Unicode mapping; Postgres
+      // refuses to store them ("unsupported Unicode escape sequence"), which
+      // used to fail the whole source as `persistFailed`.
+      const DIRTY = "Vor\u0000 dem\uD800 Text, genug Inhalt für einen Chunk."
+      const CLEAN = "Vor� dem� Text, genug Inhalt für einen Chunk."
+      const dirtyHash = await sha256HexOfText(DIRTY)
+      const processingRow = makeSource({
+        status: "processing",
+        content_text: DIRTY,
+        content_hash: dirtyHash,
+      })
+      const readyRow = makeSource({ status: "ready", content_text: CLEAN })
+      const { client, callsByTable } = createMockClient({
+        sources: [
+          { data: processingRow, error: null }, // getSourceById
+          { data: null, error: null }, // update -> processing
+          { data: readyRow, error: null }, // final update+select
+        ],
+        chunks: [
+          { data: null, error: null }, // L2 pre-insert delete
+          { data: null, error: null }, // insert
+        ],
+      })
+
+      const chunkText = vi.fn((text: string) => [
+        { index: 0, content: text, charStart: 0, charEnd: text.length, tokenCount: 10 },
+      ])
+      const embedChunks = vi.fn().mockResolvedValue([[0.1]])
+
+      const service = createIngestionService(
+        createDeps(client, { chunkText, embedChunks })
+      )
+      await service.runIngestionJob({ sourceId: SOURCE_ID })
+
+      // The chunker — and therefore every persisted chunk row — sees the
+      // sanitized text…
+      expect(chunkText).toHaveBeenCalledWith(CLEAN)
+      const insertCall = callsByTable.chunks.find((c) => c.method === "insert")
+      const insertedRows = insertCall!.args[0] as { content: string }[]
+      expect(insertedRows[0].content).toBe(CLEAN)
+      // …and so does the final sources UPDATE payload (content_text).
+      const updates = callsByTable.sources.filter((c) => c.method === "update")
+      const finalPayload = updates[updates.length - 1]!.args[0] as {
+        content_text: string
+      }
+      expect(finalPayload.content_text).toBe(CLEAN)
     })
 
     it("error path: embedChunks throws -> status='error', no chunks inserted", async () => {

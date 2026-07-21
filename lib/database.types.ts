@@ -182,28 +182,37 @@ export type Database = {
       }
       notes: {
         Row: {
+          citations: Json | null
           content: Json
           created_at: string
           id: string
+          markdown: string | null
           notebook_id: string
+          origin: string
           title: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          citations?: Json | null
           content?: Json
           created_at?: string
           id?: string
+          markdown?: string | null
           notebook_id: string
+          origin?: string
           title?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          citations?: Json | null
           content?: Json
           created_at?: string
           id?: string
+          markdown?: string | null
           notebook_id?: string
+          origin?: string
           title?: string
           updated_at?: string
           user_id?: string
@@ -228,6 +237,8 @@ export type Database = {
           notebook_id: string
           status: string
           storage_path: string | null
+          summary: string | null
+          summary_embedding: string | null
           title: string
           type: string
           updated_at: string
@@ -243,6 +254,8 @@ export type Database = {
           notebook_id: string
           status?: string
           storage_path?: string | null
+          summary?: string | null
+          summary_embedding?: string | null
           title: string
           type: string
           updated_at?: string
@@ -258,6 +271,8 @@ export type Database = {
           notebook_id?: string
           status?: string
           storage_path?: string | null
+          summary?: string | null
+          summary_embedding?: string | null
           title?: string
           type?: string
           updated_at?: string
@@ -374,6 +389,19 @@ export type Database = {
           metadata: Json
           similarity: number
           source_id: string
+        }[]
+      }
+      match_source_summaries: {
+        Args: {
+          p_match_count: number
+          p_notebook_id: string
+          p_query_embedding: string
+        }
+        Returns: {
+          similarity: number
+          source_id: string
+          summary: string
+          title: string
         }[]
       }
       read_ingestion_jobs: {

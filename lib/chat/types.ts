@@ -11,10 +11,20 @@ import type { Json } from "@/lib/database.types"
  * docstring for who is responsible for attaching it.
  */
 export interface RetrievedChunk {
-  chunkId: string
+  /**
+   * The `chunks` row id — or `null` for a doc-level SUMMARY candidate
+   * (chat-retrieval-rerank Phase 1, multi-granularity retrieval). A summary
+   * lives on `sources` (`summary`/`summary_embedding`), not in `chunks`, so it
+   * has no chunk id. `null` (never a synthetic string) is the discriminator
+   * everywhere downstream — a non-UUID sentinel would crash `hydrate.ts`'s
+   * `.in("id", …)` against the `uuid` `chunks.id` on reload.
+   */
+  chunkId: string | null
   sourceId: string
   content: string
-  chunkIndex: number
+  /** `chunks.chunk_index`, or `null` for a summary candidate (no chunk
+   *  sequence position — the locator's "Absatz N" is omitted for it). */
+  chunkIndex: number | null
   similarity: number
   metadata: Json
 }
@@ -44,7 +54,11 @@ export interface PromptChunk extends RetrievedChunk {
  */
 export interface Citation {
   n: number
-  chunk_id: string
+  /** `chunks.id` for a chunk citation, or `null` for a doc-level summary
+   *  citation (see `RetrievedChunk.chunkId`). Persisted verbatim into
+   *  `messages.citations` (unconstrained `jsonb`, no FK) and used by
+   *  `hydrate.ts` to route reload lookup to `chunks` vs `sources`. */
+  chunk_id: string | null
   source_id: string
 }
 
@@ -92,7 +106,8 @@ export interface ParsedCitations {
 //     whole message history (not one query per message/citation).
 export interface CitationDetail {
   n: number
-  chunkId: string
+  /** `null` for a doc-level summary citation (see `Citation.chunk_id`). */
+  chunkId: string | null
   sourceId: string
   sourceTitle: string
   /** `sources.type` ("pdf" | "text" | "web" | "docx" | "xlsx" | "image" | …),

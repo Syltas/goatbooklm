@@ -267,6 +267,60 @@ describe("createChatService", () => {
     })
   })
 
+  describe("retrieveSummaries", () => {
+    function createRpcClient(result: QueryResult) {
+      const rpc = vi.fn(() => Promise.resolve(result))
+      const client = { rpc } as unknown as SupabaseClient<Database>
+      return { client, rpc }
+    }
+
+    it("calls match_source_summaries and maps rows to summary RetrievedChunks (chunkId/chunkIndex null, metadata {})", async () => {
+      const rpcRows = [
+        { source_id: "source-1", title: "Doc A", summary: "Worum es geht.", similarity: 0.31 },
+      ]
+      const { client, rpc } = createRpcClient({ data: rpcRows, error: null })
+      const service = createChatService({ db: client, embed: vi.fn(), config: CONFIG })
+
+      const result = await service.retrieveSummaries(NOTEBOOK_ID, [0.1, 0.2, 0.3], 4)
+
+      expect(rpc).toHaveBeenCalledWith("match_source_summaries", {
+        p_notebook_id: NOTEBOOK_ID,
+        p_query_embedding: "[0.1,0.2,0.3]",
+        p_match_count: 4,
+      })
+      expect(result).toEqual([
+        {
+          chunkId: null,
+          sourceId: "source-1",
+          content: "Worum es geht.",
+          chunkIndex: null,
+          similarity: 0.31,
+          metadata: {},
+        },
+      ])
+    })
+
+    it("drops rows with an empty/whitespace summary", async () => {
+      const rpcRows = [
+        { source_id: "s1", title: "A", summary: "   ", similarity: 0.4 },
+        { source_id: "s2", title: "B", summary: "echt", similarity: 0.2 },
+      ]
+      const { client } = createRpcClient({ data: rpcRows, error: null })
+      const service = createChatService({ db: client, embed: vi.fn(), config: CONFIG })
+
+      const result = await service.retrieveSummaries(NOTEBOOK_ID, [0.1], 4)
+
+      expect(result.map((r) => r.sourceId)).toEqual(["s2"])
+    })
+
+    it("error path: throws the Supabase/RPC error", async () => {
+      const { client } = createRpcClient({ data: null, error: DB_ERROR })
+      const service = createChatService({ db: client, embed: vi.fn(), config: CONFIG })
+
+      await expect(service.retrieveSummaries(NOTEBOOK_ID, [0.1], 4)).rejects.toEqual(DB_ERROR)
+    })
+  })
+
   describe("persistTurn", () => {
     function createPersistClient(userRow: Message, assistantRow: Message) {
       const insertOrder: string[] = []

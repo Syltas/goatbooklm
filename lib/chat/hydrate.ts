@@ -32,10 +32,20 @@ export async function buildInitialMessages(
   rows: MessageRow[]
 ): Promise<ChatUIMessage[]> {
   const chunkIds = new Set<string>()
+  // chat-retrieval-rerank Phase 1: a doc-level summary citation has
+  // `chunk_id === null` (no `chunks` row) — it is rehydrated from `sources` by
+  // `source_id` instead, and must NEVER enter the `.in("id", …)` against the
+  // `uuid` `chunks.id` below (a non-uuid there throws 22P02 and kills the whole
+  // notebook's hydration).
+  const summarySourceIds = new Set<string>()
   for (const row of rows) {
     if (row.role !== "assistant") continue
     for (const citation of parseCitationsColumn(row.citations)) {
-      chunkIds.add(citation.chunk_id)
+      if (citation.chunk_id === null) {
+        summarySourceIds.add(citation.source_id)
+      } else {
+        chunkIds.add(citation.chunk_id)
+      }
     }
   }
 
@@ -73,6 +83,31 @@ export async function buildInitialMessages(
     }
   }
 
+  // Summary-citation rehydration (chunk_id === null): one bulk `sources`
+  // lookup by source_id for title/type + the summary text as the popover
+  // passage. No offsets — a summary is a whole-doc overview, so the locator
+  // line + highlight degrade cleanly (same path as an offset-less chunk).
+  const summaryBySourceId = new Map<
+    string,
+    { sourceTitle: string; sourceType: string; content: string }
+  >()
+  if (summarySourceIds.size > 0) {
+    const { data, error } = await db
+      .from("sources")
+      .select("id, title, type, summary")
+      .in("id", [...summarySourceIds])
+
+    if (error) throw error
+
+    for (const src of data ?? []) {
+      summaryBySourceId.set(src.id, {
+        sourceTitle: src.title ?? "Unbenannte Quelle",
+        sourceType: src.type ?? "text",
+        content: src.summary ?? "",
+      })
+    }
+  }
+
   return rows.map((row): ChatUIMessage => {
     if (row.role !== "assistant") {
       return {
@@ -86,6 +121,21 @@ export async function buildInitialMessages(
     const citations = parseCitationsColumn(row.citations)
 
     const citationDetails: CitationDetail[] = citations.map((citation) => {
+      if (citation.chunk_id === null) {
+        const summary = summaryBySourceId.get(citation.source_id)
+        return {
+          n: citation.n,
+          chunkId: null,
+          sourceId: citation.source_id,
+          sourceTitle: summary?.sourceTitle ?? "Unbenannte Quelle",
+          sourceType: summary?.sourceType ?? "text",
+          content: summary?.content ?? "",
+          charStart: undefined,
+          charEnd: undefined,
+          page: undefined,
+          paragraph: undefined,
+        }
+      }
       const detail = detailByChunkId.get(citation.chunk_id)
       const offsets = readChunkOffsets(detail?.metadata)
       return {

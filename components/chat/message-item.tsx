@@ -132,6 +132,10 @@ export function MessageItem({
       notebookId,
       title: CHAT_ANSWER_NOTE_TITLE,
       text: content,
+      // The same `CitationDetail[]` the chat renders — carried into the note so
+      // its `[n]` markers stay hover/click-interactive (identical chips), not
+      // flattened to literal "[1]" text like before.
+      citations,
     })
     if ("error" in result) {
       toast.error(result.error)

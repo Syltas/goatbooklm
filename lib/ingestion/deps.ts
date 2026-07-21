@@ -4,6 +4,7 @@ import type { Database } from "@/lib/database.types"
 
 import { chunkText } from "./chunker"
 import { embedChunks } from "./embed"
+import { summarizeDocWithClaude } from "./summarize-doc"
 import { assertSafeUrl, extractPdfText, extractWebText, fetchWebPage } from "./extract"
 import { extractCsv } from "./extractors/csv"
 import { extractDocx } from "./extractors/docx"
@@ -75,6 +76,8 @@ export function createIngestionDeps(
     extractWebText,
     chunkText,
     embedChunks,
+
+    summarizeDoc: summarizeDocWithClaude,
 
     async downloadStorageFile(path: string): Promise<Uint8Array> {
       const { data, error } = await supabase.storage
