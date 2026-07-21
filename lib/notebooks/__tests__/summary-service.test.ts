@@ -15,23 +15,36 @@ type QueryResult = { data: unknown; error: unknown }
 
 /**
  * Minimal chainable mock scoped to exactly what this service touches:
- * `sources` (select/eq/eq/order/limit, resolved by `await`ing the chain) and
- * `notebooks` (update/eq, resolved the same way) — mirrors the chainable-mock
- * technique in `lib/ingestion/__tests__/service.test.ts`, trimmed to this
- * module's narrower query shape.
+ * `sources` (select/eq/in/gte/order/limit, resolved by `await`ing the chain
+ * or via `maybeSingle()`) and `notebooks` (update/eq or select/maybeSingle)
+ * — mirrors the chainable-mock technique in
+ * `lib/ingestion/__tests__/service.test.ts`, trimmed to this module's
+ * narrower query shape.
+ *
+ * A table's entry may be a QueryResult ARRAY: `regenerateWhenSettled` issues
+ * several successive queries against the SAME table with different expected
+ * results (e.g. `sources` once for the in-flight check, once for the ready
+ * corpus) — each `from(table)` call consumes the next array entry in order.
  */
-function createMockClient(responsesByTable: Record<string, QueryResult>) {
+function createMockClient(responsesByTable: Record<string, QueryResult | QueryResult[]>) {
   const updateCallsByTable: Record<string, unknown[]> = {}
 
+  function nextResult(table: string): QueryResult {
+    const entry = responsesByTable[table]
+    if (Array.isArray(entry)) return entry.shift() ?? { data: null, error: null }
+    return entry ?? { data: null, error: null }
+  }
+
   function chainableFor(table: string) {
-    const result = responsesByTable[table] ?? { data: null, error: null }
+    const result = nextResult(table)
     const chainable: Record<string, unknown> = {
       then: (onFulfilled: (v: QueryResult) => unknown, onRejected?: (r: unknown) => unknown) =>
         Promise.resolve(result).then(onFulfilled, onRejected),
     }
-    for (const method of ["select", "eq", "order", "limit"]) {
+    for (const method of ["select", "eq", "in", "gte", "order", "limit"]) {
       chainable[method] = vi.fn(() => chainable)
     }
+    chainable.maybeSingle = vi.fn(() => Promise.resolve(result))
     chainable.update = vi.fn((payload: unknown) => {
       updateCallsByTable[table] ??= []
       updateCallsByTable[table].push(payload)
@@ -194,6 +207,100 @@ describe("NotebookSummaryService.regenerate", () => {
     const service = createNotebookSummaryService({ db: client, summarize })
 
     await expect(service.regenerate("nb-6")).resolves.toBeUndefined()
+    expect(summarize).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+})
+
+describe("NotebookSummaryService.regenerateWhenSettled", () => {
+  it("corpusChanged with nothing in flight: flips summary_stale, then regenerates immediately", async () => {
+    const { client, updateCallsByTable } = createMockClient({
+      notebooks: [
+        { data: null, error: null }, // summary_stale=true update
+        { data: null, error: null }, // final summary update
+      ],
+      sources: [
+        { data: [], error: null }, // in-flight check: notebook settled
+        { data: [{ title: "Quelle A", content_text: "Inhalt A" }], error: null }, // ready corpus
+      ],
+    })
+    const summarize: SummarizeFn = vi.fn().mockResolvedValue("Zusammenfassung.")
+    const service = createNotebookSummaryService({ db: client, summarize })
+
+    await service.regenerateWhenSettled("nb-10", { corpusChanged: true })
+
+    expect(summarize).toHaveBeenCalledTimes(1)
+    expect(updateCallsByTable.notebooks).toEqual([
+      { summary_stale: true },
+      { summary: "Zusammenfassung.", summary_stale: false },
+    ])
+  })
+
+  it("corpusChanged with another source in flight: flips summary_stale, skips the LLM entirely", async () => {
+    const { client, updateCallsByTable } = createMockClient({
+      notebooks: [{ data: null, error: null }],
+      sources: [{ data: [{ id: "source-in-flight" }], error: null }],
+    })
+    const summarize: SummarizeFn = vi.fn()
+    const service = createNotebookSummaryService({ db: client, summarize })
+
+    await service.regenerateWhenSettled("nb-11", { corpusChanged: true })
+
+    expect(summarize).not.toHaveBeenCalled()
+    // The stale flag is the hand-off to whichever parallel invocation
+    // settles the notebook last — it MUST be persisted despite the skip.
+    expect(updateCallsByTable.notebooks).toEqual([{ summary_stale: true }])
+  })
+
+  it("no corpus change (error/dead-letter settled the notebook) with a pending stale flag: catches up with a regeneration", async () => {
+    const { client, updateCallsByTable } = createMockClient({
+      notebooks: [
+        { data: { summary_stale: true }, error: null }, // stale lookup
+        { data: null, error: null }, // final summary update
+      ],
+      sources: [
+        { data: [], error: null }, // in-flight check
+        { data: [{ title: "Quelle A", content_text: "Inhalt A" }], error: null },
+      ],
+    })
+    const summarize: SummarizeFn = vi.fn().mockResolvedValue("Nachgeholte Zusammenfassung.")
+    const service = createNotebookSummaryService({ db: client, summarize })
+
+    await service.regenerateWhenSettled("nb-12", { corpusChanged: false })
+
+    expect(summarize).toHaveBeenCalledTimes(1)
+    expect(updateCallsByTable.notebooks).toEqual([
+      { summary: "Nachgeholte Zusammenfassung.", summary_stale: false },
+    ])
+  })
+
+  it("no corpus change and not stale: full no-op, no LLM call, no DB write", async () => {
+    const { client, updateCallsByTable } = createMockClient({
+      notebooks: [{ data: { summary_stale: false }, error: null }],
+      sources: [{ data: [], error: null }],
+    })
+    const summarize: SummarizeFn = vi.fn()
+    const service = createNotebookSummaryService({ db: client, summarize })
+
+    await service.regenerateWhenSettled("nb-13", { corpusChanged: false })
+
+    expect(summarize).not.toHaveBeenCalled()
+    expect(updateCallsByTable.notebooks).toBeUndefined()
+  })
+
+  it("a DB error is swallowed — logged, never throws", async () => {
+    const { client } = createMockClient({
+      notebooks: [{ data: null, error: new Error("connection reset") }],
+    })
+    const summarize: SummarizeFn = vi.fn()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const service = createNotebookSummaryService({ db: client, summarize })
+
+    await expect(
+      service.regenerateWhenSettled("nb-14", { corpusChanged: true })
+    ).resolves.toBeUndefined()
+
     expect(summarize).not.toHaveBeenCalled()
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()

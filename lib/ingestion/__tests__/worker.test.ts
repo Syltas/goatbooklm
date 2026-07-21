@@ -297,7 +297,9 @@ describe("processIngestionTick", () => {
       }
       const runIngestionJob = vi.fn()
       const deleteJob = vi.fn().mockResolvedValue(undefined)
-      const markSourceFailed = vi.fn().mockResolvedValue(undefined)
+      // markSourceFailed returns the source's notebook_id (WorkerTickDeps
+      // contract) so the dead-letter result can feed the summary debounce.
+      const markSourceFailed = vi.fn().mockResolvedValue("nb-10")
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
 
       const results = await processIngestionTick([job], {
@@ -315,8 +317,31 @@ describe("processIngestionTick", () => {
           sourceId: "source-10",
           status: "deadLettered",
           errorMessage: expect.any(String),
+          notebookId: "nb-10",
         },
       ])
+      consoleError.mockRestore()
+    })
+
+    it("a null notebook_id from markSourceFailed (source row gone) yields a result without notebookId", async () => {
+      const job: WorkerJob = {
+        msgId: 13,
+        sourceId: "source-13",
+        readCt: MAX_DELIVERY_ATTEMPTS + 1,
+      }
+      const runIngestionJob = vi.fn()
+      const deleteJob = vi.fn().mockResolvedValue(undefined)
+      const markSourceFailed = vi.fn().mockResolvedValue(null)
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+
+      const results = await processIngestionTick([job], {
+        runIngestionJob,
+        deleteJob,
+        markSourceFailed,
+      })
+
+      expect(results[0].status).toBe("deadLettered")
+      expect(results[0]).not.toHaveProperty("notebookId")
       consoleError.mockRestore()
     })
 
@@ -361,6 +386,10 @@ describe("processIngestionTick", () => {
 
       expect(deleteJob).toHaveBeenCalledWith(12)
       expect(results[0].status).toBe("deadLettered")
+      // The failed mark means no notebook_id is known — the result must not
+      // carry one (the debounce would query a notebook that was never
+      // settled by this outcome).
+      expect(results[0]).not.toHaveProperty("notebookId")
       expect(consoleError).toHaveBeenCalled()
       consoleError.mockRestore()
     })

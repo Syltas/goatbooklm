@@ -16,12 +16,15 @@ import { createAdminClient } from "@/lib/supabase/admin"
 /**
  * pg_cron-triggered ingestion worker (specs/02-ingestion.md §9
  * Worker-Contract, §4 Punkt 1). Never called by a user — `pg_cron` +
- * `pg_net` POST here every 15s (see
- * `supabase/migrations/20260719144042_create_ingestion_queue.sql`'s
- * `cron.schedule(...)`, which reads the target URL + shared secret from
- * `public.ingestion_worker_config`). Auth is a single shared-secret header
- * check (`x-worker-secret` — NOT the DB row's own RLS, there is no acting
- * user here), fail-closed, constant-time compared.
+ * `pg_net` POST here THREE TIMES every 15s (fan-out migration
+ * `supabase/migrations/20260721150000_fanout_ingestion_worker.sql`, which
+ * reads the target URL + shared secret from
+ * `public.ingestion_worker_config`). Each POST is an independent serverless
+ * invocation processing at most ONE job (`READ_BATCH_SIZE` below) — that is
+ * where the parallelism lives: across invocations, never inside one. Auth is
+ * a single shared-secret header check (`x-worker-secret` — NOT the DB row's
+ * own RLS, there is no acting user here), fail-closed, constant-time
+ * compared.
  *
  * `maxDuration = 300`: this is the ONLY route in the app that needs a long
  * timeout — Add-Source Server Actions are enqueue-only (milliseconds), the
@@ -39,9 +42,13 @@ const READ_VT_SECONDS = 600
 // jobs 2/3 that were never even attempted — after enough repeat crashes on
 // job 1 alone, `processIngestionTick`'s `MAX_DELIVERY_ATTEMPTS` dead-letter
 // (`lib/ingestion/worker.ts`) would wrongly mark those healthy, untouched
-// sources `error`. At qty=1, read_ct is a reliable per-job attempt count —
-// this is a deliberate throughput-for-correctness trade (1 job/tick instead
-// of up to 3), not an oversight.
+// sources `error`. At qty=1, read_ct is a reliable per-job attempt count.
+// Throughput comes from FAN-OUT instead: pg_cron fires 3 POSTs per tick
+// (migration 20260721150000_fanout_ingestion_worker.sql), 3 concurrent
+// invocations of this route each holding exactly one job — pgmq's atomic
+// read (SKIP LOCKED) guarantees they never receive the same message, and a
+// crash in one invocation cannot inflate read_ct for jobs held by the
+// others.
 const READ_BATCH_SIZE = 1
 
 // Same slug as `app/api/chat/route.ts`'s `CHAT_MODEL_ID` — verified against
@@ -172,36 +179,49 @@ export async function POST(request: Request) {
     // `IngestionService.runIngestionJob`'s own catch block persists for a
     // handled failure, just issued straight from the route handler since
     // `processIngestionTick` deliberately has no DB access of its own.
+    // Returns the row's notebook_id (contract on `WorkerTickDeps`): a
+    // dead-letter is a terminal outcome too, and the summary debounce below
+    // needs it as a possible "notebook just settled" trigger. `.select()`
+    // on the update costs nothing extra — same single round trip.
     markSourceFailed: async (sourceId, message) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("sources")
         .update({ status: "error", error_message: message })
         .eq("id", sourceId)
+        .select("notebook_id")
+        .maybeSingle()
       if (error) throw error
+      return data?.notebook_id ?? null
     },
   })
 
   // Part A (empty-chat summary) — regenerate right after the `ready`
-  // TRANSITION, never at insert time: `results` only carries `notebookId`
-  // for jobs where `runIngestionJob` actually resolved a source row (see
-  // `WorkerJobResult`'s doc comment), so `notFound`/`crashed`/`invalid`
-  // entries are naturally excluded. Deduped via `Set` — a bulk upload can
-  // land several sources of the SAME notebook in one tick, and each only
-  // needs one regeneration covering all of them, not one per source.
-  const readyNotebookIds = new Set(
-    results
-      .filter((result) => result.status === "ready" && result.notebookId)
-      .map((result) => result.notebookId as string)
-  )
+  // TRANSITION, never at insert time, and DEBOUNCED across the 3 parallel
+  // fan-out invocations via `regenerateWhenSettled` (see its doc comment):
+  // only the invocation that settles a notebook's last in-flight source
+  // actually calls the LLM. Every result carrying a `notebookId` is a
+  // terminal outcome for that notebook (`ready`/`error`/`deadLettered` —
+  // `notFound`/`crashed`/`invalid` never have one, see `WorkerJobResult`) and
+  // therefore a potential settling point; `corpusChanged` marks whether THIS
+  // result added retrievable content (only `ready` does). Deduped via `Map`
+  // — with `READ_BATCH_SIZE = 1` there is at most one result per invocation
+  // anyway, but the tick contract stays batch-safe.
+  const summaryTriggers = new Map<string, { corpusChanged: boolean }>()
+  for (const result of results) {
+    if (!result.notebookId) continue
+    const trigger = summaryTriggers.get(result.notebookId) ?? { corpusChanged: false }
+    if (result.status === "ready") trigger.corpusChanged = true
+    summaryTriggers.set(result.notebookId, trigger)
+  }
   const summaryService = createNotebookSummaryService({
     db: supabase,
     summarize: summarizeWithClaude,
   })
-  for (const notebookId of readyNotebookIds) {
-    // `regenerate` never throws (see its own doc comment) — no try/catch
-    // needed here, but a summary failure must never have been able to
-    // reach this loop as an unhandled rejection either way.
-    await summaryService.regenerate(notebookId)
+  for (const [notebookId, trigger] of summaryTriggers) {
+    // `regenerateWhenSettled` never throws (see its own doc comment) — no
+    // try/catch needed here, but a summary failure must never have been able
+    // to reach this loop as an unhandled rejection either way.
+    await summaryService.regenerateWhenSettled(notebookId, trigger)
   }
 
   return NextResponse.json({ processed: jobs.length, results })

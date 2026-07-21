@@ -81,8 +81,16 @@ export interface WorkerTickDeps {
    * — wired directly against the `sources` table by the route handler, since
    * this module deliberately has no direct DB access of its own (see the
    * module doc comment above).
+   *
+   * Returns the failed source's `notebook_id` (or `null` if the row no
+   * longer exists) so the dead-letter result can carry a `notebookId` like
+   * the handled `ready`/`error` outcomes do — the route's summary debounce
+   * (`regenerateWhenSettled`) needs every terminal outcome, dead-letter
+   * included, as a potential "notebook just settled, regenerate now"
+   * trigger; without it, a notebook whose LAST in-flight source dead-letters
+   * would keep a previously skipped ready-transition stale forever.
    */
-  markSourceFailed: (sourceId: string, message: string) => Promise<void>
+  markSourceFailed: (sourceId: string, message: string) => Promise<string | null>
 }
 
 export interface WorkerJobResult {
@@ -115,12 +123,15 @@ export interface WorkerJobResult {
   status: "ready" | "error" | "crashed" | "notFound" | "invalid" | "deadLettered"
   errorMessage?: string
   /**
-   * The source's notebook — only known when `runIngestionJob` actually
-   * resolved a source row (i.e. `status` is `"ready"` or `"error"`, never
-   * `"crashed"`/`"notFound"`/`"invalid"`). The route handler uses this to
-   * trigger a notebook-summary regeneration (Part A of the empty-chat-
-   * summary feature) right after a `ready` result, without a second DB
-   * lookup for the source's `notebook_id`.
+   * The source's notebook — known when `runIngestionJob` actually resolved a
+   * source row (`status` `"ready"`/`"error"`) or when the dead-letter path's
+   * `markSourceFailed` update found the row (`"deadLettered"`, unless the
+   * row vanished meanwhile); never for `"crashed"`/`"notFound"`/`"invalid"`.
+   * The route handler feeds every result carrying a `notebookId` into the
+   * summary debounce (`regenerateWhenSettled`, Part A of the empty-chat-
+   * summary feature) — terminal non-ready outcomes matter there too, as the
+   * "notebook settled, catch up on a previously skipped regeneration"
+   * trigger — without a second DB lookup for the source's `notebook_id`.
    */
   notebookId?: string
 }
@@ -151,20 +162,24 @@ async function deleteTerminalJob(
  * Best-effort counterpart to `deleteTerminalJob` for the read_ct dead-letter
  * path — a failure marking the source row must not block the delete that
  * actually stops the redelivery loop (the primary goal here), so it is only
- * logged, never re-thrown.
+ * logged, never re-thrown. Returns the source's `notebook_id` when the mark
+ * succeeded and found the row, `null` otherwise (row gone, or the marking
+ * itself failed — in the latter case there is nothing settled to summarize
+ * anyway, the source row still LOOKS in-flight/stale to the debounce).
  */
 async function markSourceFailedBestEffort(
   deps: WorkerTickDeps,
   sourceId: string,
   message: string
-): Promise<void> {
+): Promise<string | null> {
   try {
-    await deps.markSourceFailed(sourceId, message)
+    return await deps.markSourceFailed(sourceId, message)
   } catch (error) {
     console.error(
       `[ingestion-worker] failed to mark source ${sourceId} as failed during dead-letter:`,
       error
     )
+    return null
   }
 }
 
@@ -207,13 +222,18 @@ export async function processIngestionTick(
       console.error(
         `[ingestion-worker] job ${job.msgId} (source ${job.sourceId}) exceeded ${MAX_DELIVERY_ATTEMPTS} delivery attempts (read_ct=${job.readCt}) — dead-lettering instead of leaving it for further redelivery`
       )
-      await markSourceFailedBestEffort(deps, job.sourceId, DEAD_LETTER_MESSAGE)
+      const notebookId = await markSourceFailedBestEffort(
+        deps,
+        job.sourceId,
+        DEAD_LETTER_MESSAGE
+      )
       await deleteTerminalJob(deps, job.msgId, "dead-lettered")
       results.push({
         msgId: job.msgId,
         sourceId: job.sourceId,
         status: "deadLettered",
         errorMessage: DEAD_LETTER_MESSAGE,
+        ...(notebookId ? { notebookId } : {}),
       })
       continue
     }

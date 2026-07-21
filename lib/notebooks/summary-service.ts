@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 import type { Database } from "@/lib/database.types"
+import { STALE_PROCESSING_MS } from "@/lib/ingestion/messages"
 
 /**
  * Notebook-level chat summary (empty-chat-state feature, Part A).
@@ -11,12 +12,19 @@ import type { Database } from "@/lib/database.types"
  * still `pending` (`lib/ingestion/service.ts`'s `createPendingFileSource`/
  * `createTextSource`/`createWebSource` all start there) — summarizing then
  * would read a corpus that doesn't yet contain the new source's text, and
- * nothing would ever re-run to pick it up once it lands. `regenerate` below
- * is called from `app/api/ingestion-worker/route.ts`, once per notebook,
- * right after `processIngestionTick` reports a `ready` result for one of its
- * sources — the only point where "just became part of the retrievable
- * corpus" is actually true. `invalidateNotebookSummary` is the delete-side
- * counterpart, called from `deleteSourceAction`.
+ * nothing would ever re-run to pick it up once it lands.
+ *
+ * Since the worker fan-out (migration
+ * `20260721150000_fanout_ingestion_worker.sql`, 3 parallel invocations per
+ * tick), the entry point for the worker is `regenerateWhenSettled` — a
+ * debounced wrapper around `regenerate`: a bulk upload lands several sources
+ * of the SAME notebook in PARALLEL invocations now, and without the debounce
+ * each ready-transition would fire its own concurrent LLM regeneration
+ * (redundant calls, last-write-wins races on `notebooks.summary`). Only the
+ * invocation that finds no other source of the notebook still in flight
+ * actually regenerates; the skipped ones just flip `summary_stale` so their
+ * ready-transition can't get lost. `invalidateNotebookSummary` is the
+ * delete-side counterpart, called from `deleteSourceAction`.
  */
 
 /**
@@ -131,6 +139,93 @@ export function createNotebookSummaryService(deps: NotebookSummaryDeps) {
 
 class NotebookSummaryService {
   constructor(private readonly deps: NotebookSummaryDeps) {}
+
+  /**
+   * Debounced regeneration for the fan-out worker (the only caller,
+   * `app/api/ingestion-worker/route.ts`) — decides WHETHER to run
+   * `regenerate` now, later (by another invocation), or not at all:
+   *
+   *  1. `corpusChanged: true` (a source of this notebook just reached
+   *     `ready`) first flips `summary_stale = true`. That write is the
+   *     hand-off that makes skipping safe: if this invocation then skips
+   *     (step 2), the flag survives until whichever invocation settles the
+   *     notebook last, so a skipped ready-transition can never be lost.
+   *  2. If any OTHER source of the notebook is still in flight (`pending`/
+   *     `processing`), skip — the settling invocation regenerates once over
+   *     the full corpus instead of every invocation racing its own LLM call.
+   *     Rows stuck past `STALE_PROCESSING_MS` don't count as in flight
+   *     (mirrors `lib/ingestion/source-status.ts`'s staleness guard) — a
+   *     crashed-forever row must not suppress regeneration indefinitely.
+   *  3. If nothing is in flight: regenerate when the corpus changed in this
+   *     invocation OR a previous invocation left `summary_stale` behind
+   *     (a skipped ready-transition, or the delete-side
+   *     `invalidateNotebookSummary`). A terminal `error`/dead-letter result
+   *     with no stale flag pending regenerates nothing — no wasted LLM call.
+   *
+   * Residual race, accepted: two invocations settling the SAME notebook at
+   * the same instant can both see "nothing in flight" and both regenerate —
+   * duplicate (identical-input) LLM call, last write wins, content
+   * unaffected. Closing it would need a DB-side advisory lock; not worth it
+   * for a rare double call in a background worker.
+   *
+   * Same never-throws contract as `regenerate` (and for the same reason).
+   */
+  async regenerateWhenSettled(
+    notebookId: string,
+    opts: { corpusChanged: boolean }
+  ): Promise<void> {
+    try {
+      if (opts.corpusChanged) {
+        const { error } = await this.deps.db
+          .from("notebooks")
+          .update({ summary_stale: true })
+          .eq("id", notebookId)
+        if (error) throw error
+      }
+
+      if (await this.hasSourcesInFlight(notebookId)) return
+
+      if (!opts.corpusChanged && !(await this.isSummaryStale(notebookId))) return
+
+      await this.regenerate(notebookId)
+    } catch (error) {
+      console.error(
+        `[notebook-summary] regenerateWhenSettled failed for notebook ${notebookId}:`,
+        error
+      )
+    }
+  }
+
+  /** Any source of the notebook still genuinely being worked on — `pending`/
+   *  `processing` rows whose `updated_at` is within `STALE_PROCESSING_MS`
+   *  (older ones are dead per the source-status staleness guard and must not
+   *  block regeneration forever). */
+  private async hasSourcesInFlight(notebookId: string): Promise<boolean> {
+    const staleCutoff = new Date(Date.now() - STALE_PROCESSING_MS).toISOString()
+    const { data, error } = await this.deps.db
+      .from("sources")
+      .select("id")
+      .eq("notebook_id", notebookId)
+      .in("status", ["pending", "processing"])
+      .gte("updated_at", staleCutoff)
+      .limit(1)
+
+    if (error) throw error
+    return (data ?? []).length > 0
+  }
+
+  /** `notebooks.summary_stale` — `false` also for a notebook row that no
+   *  longer exists (deleted mid-flight): nothing left to regenerate for. */
+  private async isSummaryStale(notebookId: string): Promise<boolean> {
+    const { data, error } = await this.deps.db
+      .from("notebooks")
+      .select("summary_stale")
+      .eq("id", notebookId)
+      .maybeSingle()
+
+    if (error) throw error
+    return data?.summary_stale === true
+  }
 
   /**
    * Regenerates and persists `notebooks.summary` from the notebook's current
