@@ -226,4 +226,4 @@ Die vollständigen, ungekürzten Session-Transkripte liegen in [`docs/chat-expor
 
 ## Lizenz
 
-Kein Lizenz-File — alle Rechte vorbehalten, bis anders entschieden.
+[MIT](LICENSE) © 2026 Andreas Köckeis.
