@@ -172,15 +172,17 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
 
   return (
     <div className="flex h-full flex-col" data-test="note-editor">
-      <div className="flex items-center gap-2 border-b border-border p-3">
-        <Input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          aria-label="Notiztitel"
-          className="h-8 flex-1 border-transparent bg-transparent px-1 text-base font-bold text-foreground hover:border-border focus-visible:border-border"
-          data-test="note-editor-title-input"
-        />
-        <SaveStatus status={status} errorMessage={errorMessage} onRetry={retry} />
+      <div className="border-b border-border p-3">
+        <div className="mx-auto flex max-w-2xl items-center gap-2">
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            aria-label="Notiztitel"
+            className="h-8 flex-1 border-transparent bg-transparent px-1 text-base font-bold text-foreground hover:border-border focus-visible:border-border"
+            data-test="note-editor-title-input"
+          />
+          <SaveStatus status={status} errorMessage={errorMessage} onRetry={retry} />
+        </div>
       </div>
 
       <NoteEditorToolbar editor={editor} />

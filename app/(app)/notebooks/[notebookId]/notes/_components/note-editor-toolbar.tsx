@@ -83,131 +83,130 @@ export function NoteEditorToolbar({ editor }: NoteEditorToolbarProps) {
   if (!editor || !state) return null
 
   return (
-    <div
-      className="flex flex-wrap items-center gap-0.5 border-b border-border p-1.5"
-      data-test="note-editor-toolbar"
-    >
-      <ToolbarButton
-        label="Rückgängig"
-        icon={Undo2}
-        onClick={() => editor.chain().focus().undo().run()}
-        disabled={!state.canUndo}
-        dataTest="note-toolbar-undo"
-      />
-      <ToolbarButton
-        label="Wiederholen"
-        icon={Redo2}
-        onClick={() => editor.chain().focus().redo().run()}
-        disabled={!state.canRedo}
-        dataTest="note-toolbar-redo"
-      />
+    <div className="border-b border-border p-1.5" data-test="note-editor-toolbar">
+      <div className="mx-auto flex max-w-2xl flex-wrap items-center gap-0.5">
+        <ToolbarButton
+          label="Rückgängig"
+          icon={Undo2}
+          onClick={() => editor.chain().focus().undo().run()}
+          disabled={!state.canUndo}
+          dataTest="note-toolbar-undo"
+        />
+        <ToolbarButton
+          label="Wiederholen"
+          icon={Redo2}
+          onClick={() => editor.chain().focus().redo().run()}
+          disabled={!state.canRedo}
+          dataTest="note-toolbar-redo"
+        />
 
-      <ToolbarDivider />
+        <ToolbarDivider />
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="gap-1 px-2 text-xs"
-            data-test="note-toolbar-heading"
-          >
-            {HEADING_LABELS[state.headingLevel]}
-            <ChevronDown className="size-3" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuItem
-            onSelect={() => editor.chain().focus().setParagraph().run()}
-            className={cn(state.headingLevel === 0 && "bg-accent")}
-            data-test="note-toolbar-heading-normal"
-          >
-            Normal
-          </DropdownMenuItem>
-          {HEADING_LEVELS.map((level) => (
-            <DropdownMenuItem
-              key={level}
-              onSelect={() => editor.chain().focus().toggleHeading({ level }).run()}
-              className={cn(state.headingLevel === level && "bg-accent")}
-              data-test={`note-toolbar-heading-${level}`}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1 px-2 text-xs"
+              data-test="note-toolbar-heading"
             >
-              Überschrift {level}
+              {HEADING_LABELS[state.headingLevel]}
+              <ChevronDown className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem
+              onSelect={() => editor.chain().focus().setParagraph().run()}
+              className={cn(state.headingLevel === 0 && "bg-accent")}
+              data-test="note-toolbar-heading-normal"
+            >
+              Normal
             </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {HEADING_LEVELS.map((level) => (
+              <DropdownMenuItem
+                key={level}
+                onSelect={() => editor.chain().focus().toggleHeading({ level }).run()}
+                className={cn(state.headingLevel === level && "bg-accent")}
+                data-test={`note-toolbar-heading-${level}`}
+              >
+                Überschrift {level}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-      <ToolbarDivider />
+        <ToolbarDivider />
 
-      <ToolbarButton
-        label="Fett"
-        icon={Bold}
-        active={state.bold}
-        onClick={() => editor.chain().focus().toggleBold().run()}
-        dataTest="note-toolbar-bold"
-      />
-      <ToolbarButton
-        label="Kursiv"
-        icon={Italic}
-        active={state.italic}
-        onClick={() => editor.chain().focus().toggleItalic().run()}
-        dataTest="note-toolbar-italic"
-      />
-      <LinkToolbarButton editor={editor} active={state.link} />
-      <ToolbarButton
-        label="Code"
-        icon={Code}
-        active={state.code}
-        onClick={() => editor.chain().focus().toggleCode().run()}
-        dataTest="note-toolbar-code"
-      />
+        <ToolbarButton
+          label="Fett"
+          icon={Bold}
+          active={state.bold}
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          dataTest="note-toolbar-bold"
+        />
+        <ToolbarButton
+          label="Kursiv"
+          icon={Italic}
+          active={state.italic}
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          dataTest="note-toolbar-italic"
+        />
+        <LinkToolbarButton editor={editor} active={state.link} />
+        <ToolbarButton
+          label="Code"
+          icon={Code}
+          active={state.code}
+          onClick={() => editor.chain().focus().toggleCode().run()}
+          dataTest="note-toolbar-code"
+        />
 
-      <ToolbarDivider />
+        <ToolbarDivider />
 
-      <ToolbarButton
-        label="Codeblock"
-        icon={Code2}
-        active={state.codeBlock}
-        onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-        dataTest="note-toolbar-codeblock"
-      />
-      <ToolbarButton
-        label="Aufzählungsliste"
-        icon={List}
-        active={state.bulletList}
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
-        dataTest="note-toolbar-bullet-list"
-      />
-      <ToolbarButton
-        label="Nummerierte Liste"
-        icon={ListOrdered}
-        active={state.orderedList}
-        onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        dataTest="note-toolbar-ordered-list"
-      />
-      <ToolbarButton
-        label="Zitat"
-        icon={Quote}
-        active={state.blockquote}
-        onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        dataTest="note-toolbar-quote"
-      />
-      <ToolbarButton
-        label="Trennlinie"
-        icon={Minus}
-        onClick={() => editor.chain().focus().setHorizontalRule().run()}
-        dataTest="note-toolbar-divider"
-      />
+        <ToolbarButton
+          label="Codeblock"
+          icon={Code2}
+          active={state.codeBlock}
+          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+          dataTest="note-toolbar-codeblock"
+        />
+        <ToolbarButton
+          label="Aufzählungsliste"
+          icon={List}
+          active={state.bulletList}
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          dataTest="note-toolbar-bullet-list"
+        />
+        <ToolbarButton
+          label="Nummerierte Liste"
+          icon={ListOrdered}
+          active={state.orderedList}
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          dataTest="note-toolbar-ordered-list"
+        />
+        <ToolbarButton
+          label="Zitat"
+          icon={Quote}
+          active={state.blockquote}
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          dataTest="note-toolbar-quote"
+        />
+        <ToolbarButton
+          label="Trennlinie"
+          icon={Minus}
+          onClick={() => editor.chain().focus().setHorizontalRule().run()}
+          dataTest="note-toolbar-divider"
+        />
 
-      <ToolbarDivider />
+        <ToolbarDivider />
 
-      <ToolbarButton
-        label="Formatierung entfernen"
-        icon={Eraser}
-        onClick={() => editor.chain().focus().clearNodes().unsetAllMarks().run()}
-        dataTest="note-toolbar-clear-formatting"
-      />
+        <ToolbarButton
+          label="Formatierung entfernen"
+          icon={Eraser}
+          onClick={() => editor.chain().focus().clearNodes().unsetAllMarks().run()}
+          dataTest="note-toolbar-clear-formatting"
+        />
+      </div>
     </div>
   )
 }

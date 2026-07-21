@@ -87,7 +87,7 @@ export function NoteViewer({ note, onCite, onUpdated }: NoteViewerProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <div
-          className="text-[15px] leading-[1.75] text-foreground"
+          className="mx-auto max-w-2xl rounded-xl bg-card px-6 py-5 text-[15px] leading-[1.75] text-foreground"
           data-test="note-viewer-content"
         >
           <CitationRender content={markdown} citations={citations} onCite={onCite} />

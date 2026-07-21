@@ -87,40 +87,42 @@ export function AudioViewer({ title, storagePath, script, onBack, menu }: AudioV
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <h3
-          className="mb-3 text-[17px] leading-snug font-semibold text-foreground"
-          data-test="audio-viewer-title"
-        >
-          {title}
-        </h3>
+        <div className="mx-auto max-w-2xl rounded-xl bg-card px-6 py-5">
+          <h3
+            className="mb-3 text-[17px] leading-snug font-semibold text-foreground"
+            data-test="audio-viewer-title"
+          >
+            {title}
+          </h3>
 
-        {urlError ? (
-          <p className="text-sm text-[var(--danger)]" data-test="audio-viewer-error">
-            Audio konnte nicht geladen werden. Bitte Seite neu laden.
-          </p>
-        ) : signedUrl ? (
-          <audio
-            controls
-            src={signedUrl}
-            className="w-full"
-            data-test="audio-viewer-player"
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Audio wird geladen…</p>
-        )}
+          {urlError ? (
+            <p className="text-sm text-[var(--danger)]" data-test="audio-viewer-error">
+              Audio konnte nicht geladen werden. Bitte Seite neu laden.
+            </p>
+          ) : signedUrl ? (
+            <audio
+              controls
+              src={signedUrl}
+              className="w-full"
+              data-test="audio-viewer-player"
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Audio wird geladen…</p>
+          )}
 
-        <div className="mt-5 space-y-3" data-test="audio-viewer-transcript">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Transkript
-          </p>
-          {script.turns.map((turn, index) => (
-            <div key={index} className="text-[14px] leading-relaxed">
-              <span className="font-medium text-foreground">
-                {speakerLabel(turn.speaker)}:
-              </span>{" "}
-              <span className="text-foreground">{turn.text}</span>
-            </div>
-          ))}
+          <div className="mt-5 space-y-3" data-test="audio-viewer-transcript">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Transkript
+            </p>
+            {script.turns.map((turn, index) => (
+              <div key={index} className="text-[14px] leading-relaxed">
+                <span className="font-medium text-foreground">
+                  {speakerLabel(turn.speaker)}:
+                </span>{" "}
+                <span className="text-foreground">{turn.text}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
