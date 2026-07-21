@@ -70,12 +70,15 @@ export function ReportViewer({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <h3
-          className="mb-3 text-[17px] leading-snug font-semibold text-foreground"
+          className="mx-auto mb-3 max-w-2xl text-[17px] leading-snug font-semibold text-foreground"
           data-test="report-viewer-title"
         >
           {title}
         </h3>
-        <div data-test="report-viewer-body">
+        <div
+          className="mx-auto max-w-2xl rounded-xl bg-card px-6 py-5"
+          data-test="report-viewer-body"
+        >
           <ReportMarkdown content={markdown} />
           {streaming && (
             <span

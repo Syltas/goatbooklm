@@ -58,7 +58,7 @@ export function ChatInput({
           onKeyDown={handleKeyDown}
           disabled={disabled || busy}
           placeholder="Stellen Sie eine Frage zu Ihren Quellen…"
-          className="max-h-40 min-h-7 flex-1 resize-none border-none bg-transparent px-0 py-1.5 text-[15px] leading-[1.6] text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0"
+          className="max-h-40 min-h-7 flex-1 resize-none border-none bg-transparent px-0 py-1.5 text-[15px] leading-[1.6] text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
           aria-label="Chat-Nachricht"
           data-test="chat-input"
         />

@@ -21,10 +21,9 @@ import {
   effectiveStatus,
   type SourceStatus,
 } from "@/lib/ingestion/source-status"
-import { getNotebookCardColor } from "@/lib/notebooks/presentation"
 
 import { retrySourceAction } from "../actions"
-import { getChunkCount, type SourceWithChunkCount } from "../types"
+import type { SourceWithChunkCount } from "../types"
 
 /** One icon per `sources.type`. Distinguishing the formats at a glance
  *  matters more now that a notebook can hold seven of them — a single
@@ -41,20 +40,30 @@ const TYPE_ICON: Record<string, typeof FileText> = {
   web: Globe,
 }
 
-function StatusBadge({
-  status,
-  chunkCount,
-}: {
-  status: SourceStatus
-  chunkCount: number
-}) {
+/** One dot color per `sources.type` (app/globals.css `--source-*` tokens) —
+ *  semantic, unlike `getNotebookCardColor`'s per-id hash used for notebook
+ *  cards/rows. Same type always renders the same color, so two PDFs read as
+ *  the same "kind" at a glance instead of arbitrary colors. */
+const TYPE_DOT_COLOR: Record<string, string> = {
+  pdf: "var(--source-pdf)",
+  txt: "var(--source-text)",
+  md: "var(--source-text)",
+  docx: "var(--source-doc)",
+  xlsx: "var(--source-sheet)",
+  csv: "var(--source-sheet)",
+  image: "var(--source-image)",
+  text: "var(--source-text)",
+  web: "var(--source-web)",
+}
+
+function StatusBadge({ status }: { status: SourceStatus }) {
   if (status === "ready") {
     return (
       <p
         className="mt-0.5 text-xs text-[var(--ok)]"
         data-test="source-status-badge"
       >
-        Bereit · {chunkCount} {chunkCount === 1 ? "Chunk" : "Chunks"}
+        Bereit
       </p>
     )
   }
@@ -134,7 +143,9 @@ export function SourceListItem({
     >
       <span
         className="mt-px flex size-7 shrink-0 items-center justify-center rounded-lg text-foreground"
-        style={{ backgroundColor: getNotebookCardColor(source.id) }}
+        style={{
+          backgroundColor: TYPE_DOT_COLOR[source.type] ?? "var(--source-text)",
+        }}
         aria-hidden="true"
       >
         <Icon className="size-3.5" aria-hidden="true" />
@@ -143,7 +154,7 @@ export function SourceListItem({
         <p className="truncate text-[13.5px] leading-[1.45] font-bold text-foreground">
           {source.title}
         </p>
-        <StatusBadge status={status} chunkCount={getChunkCount(source)} />
+        <StatusBadge status={status} />
         {status === "error" && errorMessage && (
           <p className="mt-0.5 text-xs text-[var(--danger)]">{errorMessage}</p>
         )}

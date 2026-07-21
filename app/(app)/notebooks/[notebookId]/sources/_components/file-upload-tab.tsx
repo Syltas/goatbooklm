@@ -322,7 +322,10 @@ export function FileUploadTab({ notebookId, onDone }: FileUploadTabProps) {
       )}
 
       {selected.length >= 2 && (
-        <ul className="space-y-1.5" data-test="file-upload-file-list">
+        <ul
+          className="max-h-72 space-y-1.5 overflow-y-auto pr-1"
+          data-test="file-upload-file-list"
+        >
           {selected.map((entry) => (
             <li
               key={entry.id}

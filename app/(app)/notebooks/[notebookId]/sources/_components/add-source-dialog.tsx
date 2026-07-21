@@ -49,8 +49,11 @@ export function AddSourceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-test="add-source-dialog" className="sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent
+        data-test="add-source-dialog"
+        className="flex max-h-[85dvh] flex-col overflow-hidden sm:max-w-lg"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Quelle hinzufügen</DialogTitle>
           <DialogDescription>
             Füge eine Datei (PDF, Word, Excel, CSV, Text, Markdown oder
@@ -59,7 +62,19 @@ export function AddSourceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={setTab}>
+        {/* Bug fix: with many files selected, the file list below used to
+         * grow without bound and push this dialog's header/buttons off the
+         * top and bottom of the viewport. This wrapper caps the dialog at
+         * 85dvh (DialogContent, above) and turns everything below the fixed
+         * header into one scrollable region, so the header stays put and
+         * the tab body scrolls instead of the whole dialog growing past the
+         * viewport. See file-upload-tab.tsx for the matching fix that also
+         * caps the file list's own height. */}
+        <Tabs
+          value={tab}
+          onValueChange={setTab}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="file" data-test="add-source-tab-file">
               Datei

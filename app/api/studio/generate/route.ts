@@ -30,6 +30,7 @@ import {
   type ReportFormat,
 } from "@/lib/studio/schema"
 import { createStudioService } from "@/lib/studio/service"
+import { shuffleQuizOptions } from "@/lib/studio/shuffle"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
@@ -276,10 +277,16 @@ export async function POST(request: Request) {
         messages: [{ role: "user", content: buildObjectUserTurn(sourcesBlock) }],
         maxOutputTokens: STUDIO_MAX_OUTPUT_TOKENS,
       })
+      // #9: das Modell biased `correct_index` fast immer auf 0 — im Viewer
+      // war die korrekte Antwort dadurch praktisch immer Option A. Fix nur
+      // für Quiz-Artefakte (erkennbar an `questions`; Flashcards haben
+      // `cards` und kein Options-/Index-Konzept): Optionen je Frage mischen,
+      // `correct_index` auf die neue Position der korrekten Option remappen.
+      const content = "questions" in object ? shuffleQuizOptions(object) : object
       await service.finalizeReady({
         artifactId,
         title: object.title,
-        content: object as unknown as Json,
+        content: content as unknown as Json,
       })
     } catch (err) {
       console.error(`[studio] ${type} generation failed`, err)

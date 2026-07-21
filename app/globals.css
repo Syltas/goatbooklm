@@ -80,6 +80,18 @@
   --card-4: #fef7e0;
   --card-5: #f3e8fd;
   --card-6: #e0f2f1;
+  /* Source-type dot colors (source-list-item.tsx) — semantic, keyed by
+     `sources.type`, NOT the `--card-*` family above (that one is a
+     deterministic hash of the notebook id, unrelated to document type; see
+     getNotebookCardColor in lib/notebooks/presentation.ts). Same type always
+     renders the same color. Grouping: pdf=red, docx=blue,
+     xlsx/csv=green, image=purple, txt/md/text=grey, web=teal. */
+  --source-pdf: #fbdcd9;
+  --source-doc: #dbe4fb;
+  --source-sheet: #d9f0e0;
+  --source-image: #ecdcf9;
+  --source-text: #e5e3dd;
+  --source-web: #d3eeec;
 
   /* shadcn tokens mapped onto the tokens above */
   --background: var(--bg);
@@ -142,6 +154,12 @@
   --card-4: #3b3524;
   --card-5: #33263e;
   --card-6: #233a38;
+  --source-pdf: #402c2a;
+  --source-doc: #2a2f45;
+  --source-sheet: #253a2c;
+  --source-image: #362a42;
+  --source-text: #302f2c;
+  --source-web: #223a3a;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

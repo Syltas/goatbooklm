@@ -97,138 +97,140 @@ export function QuizViewer({ title, questions, onBack, menu, onExplain }: QuizVi
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <h3
-          className="mb-3 text-[17px] leading-snug font-semibold text-foreground"
-          data-test="quiz-viewer-title"
-        >
-          {title}
-        </h3>
+        <div className="mx-auto w-full max-w-2xl">
+          <h3
+            className="mb-3 text-[17px] leading-snug font-semibold text-foreground"
+            data-test="quiz-viewer-title"
+          >
+            {title}
+          </h3>
 
-        <p className="mb-1 text-xs text-muted-foreground" data-test="quiz-counter">
-          {index + 1} / {questions.length}
-        </p>
-        <p className="mb-4 text-[15px] leading-relaxed font-medium text-foreground" data-test="quiz-question">
-          {question.question}
-        </p>
+          <p className="mb-1 text-xs text-muted-foreground" data-test="quiz-counter">
+            {index + 1} / {questions.length}
+          </p>
+          <p className="mb-4 text-[15px] leading-relaxed font-medium text-foreground" data-test="quiz-question">
+            {question.question}
+          </p>
 
-        <div className="space-y-2" data-test="quiz-options">
-          {question.options.map((option, optionIndex) => {
-            const isCorrect = optionIndex === question.correct_index
-            const isChosen = optionIndex === chosenIndex
-            const surface = !answered
-              ? "bg-[var(--surface-2)] hover:bg-border/60"
-              : isCorrect
-                ? "bg-[var(--card-3)]"
-                : isChosen
-                  ? "bg-[var(--card-1)]"
-                  : "bg-[var(--surface-2)] opacity-80"
-            return (
-              <button
-                key={optionIndex}
-                type="button"
-                onClick={() => choose(optionIndex)}
-                disabled={answered}
-                className={`w-full rounded-xl px-3.5 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default ${surface}`}
-                data-test={`quiz-option-${optionIndex}`}
-                data-correct={answered && isCorrect ? "" : undefined}
-                data-chosen={isChosen ? "" : undefined}
-              >
-                <span className="flex gap-2 text-foreground">
-                  <span className="font-medium">{OPTION_LETTERS[optionIndex]}.</span>
-                  <span className="min-w-0 flex-1">{option.text}</span>
-                </span>
-                {answered && (
-                  <span className="mt-1.5 block pl-6">
-                    {isCorrect ? (
-                      <span
-                        className="flex items-center gap-1 text-xs font-medium text-[var(--ok)]"
-                        data-test="quiz-feedback-correct"
-                      >
-                        <Check className="size-3.5" aria-hidden="true" />
-                        {isChosen ? "Richtig!" : "Richtige Antwort"}
-                      </span>
-                    ) : isChosen ? (
-                      <span
-                        className="flex items-center gap-1 text-xs font-medium text-[var(--danger)]"
-                        data-test="quiz-feedback-wrong"
-                      >
-                        <X className="size-3.5" aria-hidden="true" />
-                        Nicht ganz
-                      </span>
-                    ) : null}
-                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                      {option.explanation}
-                    </span>
+          <div className="space-y-2" data-test="quiz-options">
+            {question.options.map((option, optionIndex) => {
+              const isCorrect = optionIndex === question.correct_index
+              const isChosen = optionIndex === chosenIndex
+              const surface = !answered
+                ? "bg-[var(--surface-2)] hover:bg-border/60"
+                : isCorrect
+                  ? "bg-[var(--card-3)]"
+                  : isChosen
+                    ? "bg-[var(--card-1)]"
+                    : "bg-[var(--surface-2)] opacity-80"
+              return (
+                <button
+                  key={optionIndex}
+                  type="button"
+                  onClick={() => choose(optionIndex)}
+                  disabled={answered}
+                  className={`w-full rounded-xl px-3.5 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default ${surface}`}
+                  data-test={`quiz-option-${optionIndex}`}
+                  data-correct={answered && isCorrect ? "" : undefined}
+                  data-chosen={isChosen ? "" : undefined}
+                >
+                  <span className="flex gap-2 text-foreground">
+                    <span className="font-medium">{OPTION_LETTERS[optionIndex]}.</span>
+                    <span className="min-w-0 flex-1">{option.text}</span>
                   </span>
+                  {answered && (
+                    <span className="mt-1.5 block pl-6">
+                      {isCorrect ? (
+                        <span
+                          className="flex items-center gap-1 text-xs font-medium text-[var(--ok)]"
+                          data-test="quiz-feedback-correct"
+                        >
+                          <Check className="size-3.5" aria-hidden="true" />
+                          {isChosen ? "Richtig!" : "Richtige Antwort"}
+                        </span>
+                      ) : isChosen ? (
+                        <span
+                          className="flex items-center gap-1 text-xs font-medium text-[var(--danger)]"
+                          data-test="quiz-feedback-wrong"
+                        >
+                          <X className="size-3.5" aria-hidden="true" />
+                          Nicht ganz
+                        </span>
+                      ) : null}
+                      <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                        {option.explanation}
+                      </span>
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {!answered && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setHintOpen((value) => !value)}
+                className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-expanded={hintOpen}
+                data-test="quiz-hint-toggle"
+              >
+                Hinweis
+                {hintOpen ? (
+                  <ChevronUp className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="size-3.5" aria-hidden="true" />
                 )}
               </button>
-            )
-          })}
-        </div>
-
-        {!answered && (
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => setHintOpen((value) => !value)}
-              className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              aria-expanded={hintOpen}
-              data-test="quiz-hint-toggle"
-            >
-              Hinweis
-              {hintOpen ? (
-                <ChevronUp className="size-3.5" aria-hidden="true" />
-              ) : (
-                <ChevronDown className="size-3.5" aria-hidden="true" />
+              {hintOpen && (
+                <p
+                  className="mt-2 flex items-start gap-2 rounded-lg bg-[var(--surface-2)] px-3 py-2.5 text-xs leading-relaxed text-foreground"
+                  data-test="quiz-hint"
+                >
+                  <Lightbulb
+                    className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  {question.hint}
+                </p>
               )}
-            </button>
-            {hintOpen && (
-              <p
-                className="mt-2 flex items-start gap-2 rounded-lg bg-[var(--surface-2)] px-3 py-2.5 text-xs leading-relaxed text-foreground"
-                data-test="quiz-hint"
-              >
-                <Lightbulb
-                  className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                {question.hint}
-              </p>
-            )}
-          </div>
-        )}
-
-        <div className="mt-4 flex items-center justify-between gap-2">
-          {answered && onExplain ? (
-            <button
-              type="button"
-              onClick={() => onExplain(buildExplainPrompt(question, chosenIndex))}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              data-test="quiz-explain"
-            >
-              <MessageCircleQuestion className="size-3.5" aria-hidden="true" />
-              Erklären
-            </button>
-          ) : (
-            <span />
+            </div>
           )}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => goTo(index - 1)}
-              disabled={index === 0}
-              data-test="quiz-prev"
-            >
-              Zurück
-            </Button>
-            <Button
-              type="button"
-              onClick={() => goTo(index + 1)}
-              disabled={index === questions.length - 1}
-              data-test="quiz-next"
-            >
-              Weiter
-            </Button>
+
+          <div className="mt-4 flex items-center justify-between gap-2">
+            {answered && onExplain ? (
+              <button
+                type="button"
+                onClick={() => onExplain(buildExplainPrompt(question, chosenIndex))}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                data-test="quiz-explain"
+              >
+                <MessageCircleQuestion className="size-3.5" aria-hidden="true" />
+                Erklären
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => goTo(index - 1)}
+                disabled={index === 0}
+                data-test="quiz-prev"
+              >
+                Zurück
+              </Button>
+              <Button
+                type="button"
+                onClick={() => goTo(index + 1)}
+                disabled={index === questions.length - 1}
+                data-test="quiz-next"
+              >
+                Weiter
+              </Button>
+            </div>
           </div>
         </div>
       </div>

@@ -44,7 +44,7 @@ export interface NoteEditorHandle {
  * convention.
  */
 const NOTE_CONTENT_CLASS = cn(
-  "min-h-40 flex-1 px-3 py-2 text-sm text-foreground outline-none",
+  "mx-auto min-h-40 w-full max-w-2xl flex-1 rounded-xl bg-card px-6 py-5 text-sm text-foreground outline-none",
   "[&_h1]:mt-3 [&_h1]:mb-1.5 [&_h1]:text-xl [&_h1]:font-bold",
   "[&_h2]:mt-3 [&_h2]:mb-1.5 [&_h2]:text-lg [&_h2]:font-bold",
   "[&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-base [&_h3]:font-bold",

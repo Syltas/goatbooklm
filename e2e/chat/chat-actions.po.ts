@@ -62,24 +62,21 @@ export class ChatActionsPage {
   }
 
   /**
-   * Waits for the Studio panel's note list to contain a title-input row
-   * whose LIVE value equals `title`. `note-list-item.tsx` renders the title
-   * as a controlled `<Input value="…">` — no text-node content, so
-   * `getByText` can't find it, and (Playwright, unlike Testing Library, has
-   * no `getByDisplayValue`) a plain CSS `input[value=...]` attribute
-   * selector is unreliable here too: React updates the DOM `.value`
-   * PROPERTY on a controlled input, not necessarily the HTML attribute a CSS
-   * selector matches against. Reading `.value` via `evaluateAll` inside an
-   * auto-retrying `expect(...).toPass()` sidesteps both problems — this is
-   * the wait for "the note is now visible", not a Locator (there's no
-   * evergreen single-element handle to return once the note might not exist
-   * yet).
+   * Waits for the Studio panel's note list to contain a title row whose text
+   * equals `title`. `note-list-item.tsx` renders the title as a static
+   * `<p data-test="note-title-<id>">` (kebab-menu parity rework,
+   * specs-v2-fixes-2.md §6 — it used to be a controlled `<Input>` that saved
+   * on blur; rename now goes through `RenameNoteDialog` instead, same as
+   * artifact rows). Reading `.textContent` via `evaluateAll` inside an
+   * auto-retrying `expect(...).toPass()` is the wait for "the note is now
+   * visible" — not a Locator, since there's no evergreen single-element
+   * handle to return once the note might not exist yet.
    */
   async expectNoteWithTitle(title: string, timeoutMs = 15_000): Promise<void> {
-    const inputs = this.page.locator('[data-test^="note-title-input-"]')
+    const titles = this.page.locator('[data-test^="note-title-"]')
     await expect(async () => {
-      const values = await inputs.evaluateAll((elements) =>
-        elements.map((element) => (element as HTMLInputElement).value)
+      const values = await titles.evaluateAll((elements) =>
+        elements.map((element) => element.textContent?.trim() ?? "")
       )
       expect(values).toContain(title)
     }).toPass({ timeout: timeoutMs })

@@ -1,14 +1,15 @@
 "use client"
 
-import { Trash2 } from "lucide-react"
-import { useEffect, useState, useTransition } from "react"
-import { toast } from "sonner"
+import { MoreVertical, NotebookPen, Pencil, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import type { Note } from "@/lib/notes/service"
-
-import { updateNoteAction } from "../actions"
 
 const noteDateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "numeric",
@@ -23,89 +24,98 @@ function formatNoteDate(iso: string): string {
 interface NoteListItemProps {
   note: Note
   onOpen: (note: Note) => void
-  onUpdated: (note: Note) => void
+  onRenameRequest: (note: Note) => void
   onDeleteRequest: (note: Note) => void
 }
 
 /**
- * Row has two independent interactions: an inline title rename (saves on
- * blur, same as before — a still-typing title never fires a request per
- * character, and an empty or unchanged value is never sent at all) and
- * opening the note into the full TipTap editor. This can't reuse
- * `notebook-card.tsx`'s absolute-overlay-Link pattern (an inset-0 overlay
- * behind the real controls, elevated via `relative z-20`): unlike that
- * card, the title here is a live, always-rendered `Input` spanning most of
- * the row's width and height, so a z-20 `Input` would block the overlay
- * across nearly the whole row (confirmed — it made "open" unclickable
- * outside a thin sliver). Instead the row itself opens the note on click,
- * and the title `Input`/delete `Button` each `stopPropagation` in their
- * own `onClick` so interacting with them never also opens the note.
+ * Studio-Merge: rendered inline in the Studio panel's ONE combined list next
+ * to the artifact rows (`studio-panel.tsx`), so the row chrome mirrors
+ * `artifact-row-<id>` there — leading icon, static title + subtitle, and a
+ * trailing ⋮ kebab menu — not the old rounded card, so it reads as a single
+ * cohesive stream.
+ *
+ * Kebab parity (specs-v2-fixes-2.md §6): this used to render the title as a
+ * live, always-editable `Input` that saved on blur, with a direct trash
+ * `Button` next to it — the ONE thing that visually/functionally set note
+ * rows apart from artifact rows in the mixed list. Both are gone now: the
+ * title is a static label (exactly like `artifact-row-<id>`'s `<p>`), and
+ * "Umbenennen"/"Löschen" both live behind the SAME `DropdownMenu` idiom
+ * `artifactMenu()` uses in `studio-panel.tsx` (down to the icon choices and
+ * `data-test` naming: `note-menu-<id>` / `note-menu-rename` /
+ * `note-menu-delete`, mirroring `artifact-menu-<id>` / `artifact-menu-rename`
+ * / `artifact-menu-delete`). "Umbenennen" opens `RenameNoteDialog` (mirrors
+ * `RenameArtifactDialog`) via `onRenameRequest`; "Löschen" opens the
+ * pre-existing `DeleteNoteDialog` via `onDeleteRequest` — both dialogs are
+ * mounted once by `studio-panel.tsx`, not per-row, same as the artifact
+ * dialogs.
+ *
+ * The row itself still opens the note on click; the trailing menu column
+ * `stopPropagation`s (on both the wrapping div and the trigger button, same
+ * belt-and-suspenders the artifact row uses) so opening/using the menu never
+ * also opens the note underneath it.
  */
-export function NoteListItem({ note, onOpen, onUpdated, onDeleteRequest }: NoteListItemProps) {
-  const [title, setTitle] = useState(note.title)
-  const [pending, startTransition] = useTransition()
-
-  // Keep the input in sync when this row is refreshed from outside this
-  // component (e.g. a revalidated server render after another edit).
-  useEffect(() => {
-    setTitle(note.title)
-  }, [note.title])
-
-  function handleBlur() {
-    const trimmed = title.trim()
-    if (!trimmed) {
-      // Schema requires a non-empty title — revert instead of firing a
-      // request that's guaranteed to fail validation.
-      setTitle(note.title)
-      return
-    }
-    if (trimmed === note.title) return
-
-    startTransition(async () => {
-      const result = await updateNoteAction({ id: note.id, title: trimmed })
-      if ("error" in result) {
-        toast.error(result.error)
-        setTitle(note.title)
-        return
-      }
-      onUpdated(result.data)
-    })
-  }
-
+export function NoteListItem({
+  note,
+  onOpen,
+  onRenameRequest,
+  onDeleteRequest,
+}: NoteListItemProps) {
   return (
     <div
-      className="flex cursor-pointer items-center gap-2.5 rounded-[12px] p-2.5 hover:bg-secondary"
+      className="flex cursor-pointer items-start gap-2.5 border-b border-border px-3 py-2.5 last:border-b-0 hover:bg-muted/40"
       onClick={() => onOpen(note)}
       data-test={`note-row-${note.id}`}
     >
+      <NotebookPen
+        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
       <div className="min-w-0 flex-1">
-        <Input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          onBlur={handleBlur}
-          onClick={(event) => event.stopPropagation()}
-          disabled={pending}
-          aria-label="Notiztitel"
-          className="h-7 border-transparent bg-transparent px-1 text-[13.5px] font-bold text-foreground hover:border-border focus-visible:border-border"
-          data-test={`note-title-input-${note.id}`}
-        />
-        <p className="mt-0.5 px-1 text-xs text-muted-foreground">
+        <p
+          className="truncate text-sm font-medium text-foreground"
+          data-test={`note-title-${note.id}`}
+        >
+          {note.title}
+        </p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Zuletzt bearbeitet am {formatNoteDate(note.updated_at)}
         </p>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        onClick={(event) => {
-          event.stopPropagation()
-          onDeleteRequest(note)
-        }}
-        aria-label={`„${note.title}“ löschen`}
-        data-test={`note-delete-button-${note.id}`}
+      <div
+        className="flex shrink-0 items-center gap-0.5"
+        onClick={(event) => event.stopPropagation()}
       >
-        <Trash2 />
-      </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={(event) => event.stopPropagation()}
+              aria-label={`Optionen für „${note.title}“`}
+              data-test={`note-menu-${note.id}`}
+            >
+              <MoreVertical />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuItem
+              data-test="note-menu-rename"
+              onSelect={() => onRenameRequest(note)}
+            >
+              <Pencil /> Umbenennen
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              data-test="note-menu-delete"
+              onSelect={() => onDeleteRequest(note)}
+            >
+              <Trash2 /> Löschen
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   )
 }

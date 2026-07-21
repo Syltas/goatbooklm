@@ -29,13 +29,12 @@ import type { Note } from "@/lib/notes/service"
 import type { ChatUIMessage } from "@/lib/chat/types"
 import { cn } from "@/lib/utils"
 
-import { NotesPanel, type NotesPanelHandle } from "../notes/_components/notes-panel"
 import { useNotesState } from "../notes/_components/use-notes-state"
 import { SourcesPanel } from "../sources/_components/sources-panel"
 import { ChatHeaderMenu } from "./chat-header-menu"
 import { useSourcesPolling } from "../sources/_components/use-sources-polling"
 import type { SourceWithChunkCount } from "../sources/types"
-import { StudioPanel } from "../studio/_components/studio-panel"
+import { StudioPanel, type StudioPanelHandle } from "../studio/_components/studio-panel"
 import { PANEL_LABEL, type PanelKey } from "./panel-placeholders"
 import { SourceReaderProvider, useSourceReader } from "./source-reader-context"
 import { useNotebookSummaryPolling } from "./use-notebook-summary-polling"
@@ -437,6 +436,18 @@ export function NotebookDetailShell({
 
   function handleExplain(text: string) {
     setExplainPrompt((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+    // Vibe #4: das panel-interne Studio-Fullscreen (falls offen) verlassen,
+    // sonst läge die Chat-Antwort hinter dem `fixed inset-0`-Overlay. Beide
+    // Mounts adressiert — nur einer ist je aktiv, der andere ist ein No-op
+    // (Ref null bzw. gar nicht im Fullscreen).
+    desktopStudioPanelRef.current?.exitFullscreen()
+    mobileStudioPanelRef.current?.exitFullscreen()
+    // Desktop: ist das Chat-Panel eingeklappt, aufklappen, damit die
+    // injizierte Antwort auch sichtbar wird. (Mobile schließt stattdessen
+    // unten das Studio-Sheet, dann ist der Chat dahinter sichtbar.)
+    if (collapsed.chat) {
+      toggle("chat")
+    }
     // Über closeMobilePanel (nicht setMobilePanel direkt): das Studio-Sheet
     // kann eine Notiz mit ausstehendem Autosave offen haben — flush zuerst.
     void closeMobilePanel()
@@ -475,12 +486,20 @@ export function NotebookDetailShell({
   // on the next full server round trip. See `use-notes-state.ts`.
   const { notes, addNote, updateNote, removeNote } = useNotesState(initialNotes)
 
-  // Only the MOBILE mount of Notes-Panel is ever conditionally unmounted
-  // (the desktop one, like Sources/Chat/Studio's Panels above, is always in
-  // the tree) — this ref is how `closeMobilePanel` below reaches into
-  // whichever `NoteEditor` that mount currently has open, to flush a
-  // still-pending autosave BEFORE the close actually unmounts it.
-  const mobileNotesPanelRef = useRef<NotesPanelHandle>(null)
+  // Only the MOBILE mount of the Studio-Panel is ever conditionally
+  // unmounted (the desktop one, like Sources/Chat's Panels above, is always
+  // in the tree) — this ref is how `closeMobilePanel` below reaches into
+  // whichever `NoteEditor` that mount's note-viewer currently has open, to
+  // flush a still-pending autosave BEFORE the close actually unmounts it.
+  // (The notes now live INSIDE `StudioPanel`'s combined list, so the flush
+  // handle is on `StudioPanel`, not a separate `NotesPanel`.)
+  const mobileStudioPanelRef = useRef<StudioPanelHandle>(null)
+
+  // Desktop-Mount des Studio-Panels (immer im Tree, anders als der Mobile-
+  // Mount). Der Shell braucht ihn, um beim „Erklären" das panel-interne
+  // Fullscreen-Overlay abzuräumen — sonst läge die Chat-Antwort hinter dem
+  // noch offenen `fixed inset-0`-Overlay (Vibe #4).
+  const desktopStudioPanelRef = useRef<StudioPanelHandle>(null)
 
   // Bugfix Befund 6 — every way the mobile sheet can close (Escape, overlay
   // click via `onOpenChange`, and the explicit X button below) routes
@@ -491,9 +510,9 @@ export function NotebookDetailShell({
   // has to happen while it's still mounted, not in its cleanup (ordering
   // between an unmounting component's own effects, e.g. TipTap's own
   // teardown, isn't something to rely on here). A no-op when the sheet
-  // wasn't showing Notes, or no note was open — see `NotesPanelHandle`.
+  // wasn't showing Studio, or no note was open — see `StudioPanelHandle`.
   async function closeMobilePanel() {
-    await mobileNotesPanelRef.current?.flush()
+    await mobileStudioPanelRef.current?.flush()
     setMobilePanel(null)
   }
 
@@ -636,24 +655,20 @@ export function NotebookDetailShell({
               collapsed={collapsed.studio}
               onToggle={() => toggle("studio")}
             >
-              {/* Merge core-loop-v2 × studio-quick-wins: der Studio-Slot
-                  trägt BEIDES — Artefakt-Kacheln/-Liste (StudioPanel) und
-                  darunter die Notizen (NotesPanel als `notesSlot`, nur in
-                  der Listen-Ansicht sichtbar; Viewer nehmen den vollen
-                  Slot). NotebookLM-Layout. */}
+              {/* Studio-Refactor: Kacheln/Artefakte UND Notizen leben in
+                  EINER gemeinsamen Liste im `StudioPanel` (DoD 1). Die
+                  Notiz-Daten sind hier geliftet (Bugfix Befund 6) und werden
+                  direkt durchgereicht — kein separater `notesSlot` mehr. */}
               <StudioPanel
+                ref={desktopStudioPanelRef}
                 notebookId={notebook.id}
                 sources={sources}
                 onExplain={handleExplain}
-                notesSlot={
-                  <NotesPanel
-                    notebookId={notebook.id}
-                    notes={notes}
-                    onCreated={addNote}
-                    onUpdated={updateNote}
-                    onDeleted={removeNote}
-                  />
-                }
+                notes={notes}
+                onNoteCreated={addNote}
+                onNoteUpdated={updateNote}
+                onNoteDeleted={removeNote}
+                onMobileReaderOpen={() => setMobilePanel("sources")}
               />
             </PanelChrome>
           </Panel>
@@ -694,7 +709,29 @@ export function NotebookDetailShell({
           <DialogContent
             showCloseButton={false}
             data-test={mobilePanel ? `notebook-mobile-${mobilePanel}-sheet` : undefined}
-            className="inset-x-0 top-auto bottom-0 left-0 h-[75dvh] w-full max-w-none translate-x-0 translate-y-0 gap-0 rounded-t-2xl rounded-b-none p-0 sm:max-w-none"
+            // `translate-none` (not `translate-x-0 translate-y-0`, which the
+            // base `DialogContent` className used to be overridden to here):
+            // both cancel the base's centering `-translate-x-1/2
+            // -translate-y-1/2` the same way (same tailwind-merge "translate"
+            // group, verified), but `translate-x-0 translate-y-0` compiles to
+            // `translate: 0px 0px` — a non-`none` value that still
+            // establishes a CSS containing block for `position: fixed`
+            // descendants (per spec, same rule as `transform`/`filter`).
+            // That silently confined the Studio-Fullscreen overlay's `fixed
+            // inset-0` (rendered inside this sheet on mobile, see
+            // `fullscreen-container.tsx`) to this sheet's ~75dvh box instead
+            // of the real viewport. `translate-none` compiles to the actual
+            // keyword `translate: none`, which does not establish a
+            // containing block, while still being the same zero-displacement
+            // no-op visually (verified via a direct Tailwind v4 compile: both
+            // produce an identical, invisible net translate — this sheet
+            // isn't positioned via the centering translate trick anyway, it
+            // uses `inset-x-0`/`bottom-0` directly). The open/close slide
+            // animation is untouched by this — `data-open:animate-in`/
+            // `data-closed:animate-out` (see `dialog.tsx`) animate the
+            // separate `transform` CSS property via `tw-animate-css`
+            // keyframes, not `translate`.
+            className="inset-x-0 top-auto bottom-0 left-0 h-[75dvh] w-full max-w-none translate-none gap-0 rounded-t-2xl rounded-b-none p-0 sm:max-w-none"
           >
             <DialogTitle className="sr-only">
               {mobilePanel ? PANEL_LABEL[mobilePanel] : ""}
@@ -726,19 +763,15 @@ export function NotebookDetailShell({
                 )}
                 {mobilePanel === "studio" && (
                   <StudioPanel
+                    ref={mobileStudioPanelRef}
                     notebookId={notebook.id}
                     sources={sources}
                     onExplain={handleExplain}
-                    notesSlot={
-                      <NotesPanel
-                        ref={mobileNotesPanelRef}
-                        notebookId={notebook.id}
-                        notes={notes}
-                        onCreated={addNote}
-                        onUpdated={updateNote}
-                        onDeleted={removeNote}
-                      />
-                    }
+                    notes={notes}
+                    onNoteCreated={addNote}
+                    onNoteUpdated={updateNote}
+                    onNoteDeleted={removeNote}
+                    onMobileReaderOpen={() => setMobilePanel("sources")}
                   />
                 )}
               </div>

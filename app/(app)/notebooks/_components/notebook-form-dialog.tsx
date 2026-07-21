@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
@@ -94,6 +95,7 @@ function CreateNotebookFormBody({
   onOpenChange: (open: boolean) => void
   onSaved: (notebook: Notebook) => void
 }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -114,6 +116,10 @@ function CreateNotebookFormBody({
         toast.success("Notizbuch erstellt")
         onOpenChange(false)
         onSaved(result.data)
+        // Direkt ins neue Notizbuch navigieren (Vibe #3) statt auf der
+        // Liste zu bleiben — der Edit-Pfad (EditNotebookFormBody) navigiert
+        // bewusst NICHT, siehe dort.
+        router.push(`/notebooks/${result.data.id}`)
       } catch (e) {
         setError(getErrorMessage(e))
       }
