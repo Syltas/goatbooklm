@@ -4,9 +4,11 @@ const nextConfig: NextConfig = {
   // Verification/prod builds must never clobber a running dev server's
   // `.next` (Investigate-Fix 2026-07-19: `pnpm build` while `next dev` was
   // serving corrupted the shared `.next` → every request answered
-  // "Internal Server Error" with ENOENT build-manifest errors). The build
-  // script sets NEXT_DIST_DIR=.next-build so dev and build use disjoint
-  // output dirs; dev keeps the default `.next`.
+  // "Internal Server Error" with ENOENT build-manifest errors). Run the
+  // `build:safe` script (NEXT_DIST_DIR=.next-build) for local verification
+  // while `next dev` is serving — it keeps dev and build on disjoint output
+  // dirs. The plain `build` script (Vercel's entrypoint) must emit the
+  // default `.next`, which is where Vercel's routes-manifest step looks.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   experimental: {
     serverActions: {
