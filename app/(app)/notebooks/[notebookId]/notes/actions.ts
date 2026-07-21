@@ -81,9 +81,15 @@ export const createNoteAction = enhanceAction(
  * assistant answer's end-of-turn action (Part B) both call this, unlike
  * `createNoteAction` which always starts empty. Reuses the SAME
  * create-then-update path those two actions each expose individually
- * (`service.create` + `service.update`), rather than a new insert shape, and
- * the existing `plainTextToNoteContent` serializer (`lib/notes/serialize.ts`)
- * — no second text-to-TipTap converter, per the task constraint.
+ * (`service.create` + `service.update`), rather than a new insert shape.
+ *
+ * The note is flagged `origin='chat'` and keeps its raw markdown + citation
+ * details, so the studio panel renders it read-only with the chat's exact
+ * markdown + interactive citation-chip stack (`note-viewer.tsx`) instead of the
+ * plaintext-flattened TipTap editor it used to get. `content` is STILL
+ * populated (a plaintext projection of the markdown via `plainTextToNoteContent`)
+ * so the downstream "Zu Quelle machen" path — which reads `notes.content` —
+ * keeps working unchanged for a chat note too.
  *
  * Fails closed on a notebook the caller doesn't own, same reasoning as
  * `createNoteAction` above.
@@ -100,7 +106,13 @@ export const saveTextAsNoteAction = enhanceAction(
       const created = await service.create({ notebookId: data.notebookId, userId: user.id })
       const note = await service.update(
         created.id,
-        { title: data.title, content: plainTextToNoteContent(data.text) },
+        {
+          title: data.title,
+          content: plainTextToNoteContent(data.text),
+          origin: "chat",
+          markdown: data.text,
+          citations: data.citations ?? [],
+        },
         user.id
       )
       revalidatePath(NOTEBOOK_DETAIL_PATH, "page")

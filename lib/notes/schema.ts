@@ -47,17 +47,52 @@ export const DeleteNoteSchema = z.object({
 })
 
 /**
+ * One `CitationDetail` (see `lib/chat/types.ts`) as it arrives from the client
+ * — the chat answer's `data-citations` message part, passed through so a saved
+ * chat note can render the SAME interactive citation chips the chat does.
+ *
+ * This is pure DISPLAY data, not a trust boundary: it only ever renders inside
+ * the saving user's own note (RLS-scoped), and clicking a chip calls
+ * `openSource(sourceId)`, which the reader resolves under RLS — a forged
+ * `sourceId` can't reach another user's source. So a loose-but-shaped validate
+ * (right fields, right types) is enough; we don't re-resolve every citation
+ * against the DB on save. `.passthrough()`-free `.strict()` is avoided on
+ * purpose — a future extra field on `CitationDetail` must not hard-fail an
+ * older client's save — but unknown keys are dropped rather than stored.
+ */
+const CitationDetailSchema = z.object({
+  n: z.number().int().nonnegative(),
+  chunkId: z.string().nullable(),
+  sourceId: z.uuid(),
+  sourceTitle: z.string(),
+  sourceType: z.string(),
+  content: z.string(),
+  charStart: z.number().int().nonnegative().optional(),
+  charEnd: z.number().int().nonnegative().optional(),
+  page: z.number().int().optional(),
+  paragraph: z.number().int().optional(),
+})
+
+/**
  * Input for `saveTextAsNoteAction` ("Als Notiz speichern" — the empty-chat
  * notebook summary, Part A, and an assistant answer's end-of-turn action,
- * Part B). `text` is already-plain text (a chat answer with citation markers
- * left in as-is, or the notebook summary) — converted to TipTap JSON
- * server-side via `plainTextToNoteContent` (`lib/notes/serialize.ts`), never
- * accepted as pre-built TipTap JSON from the client.
+ * Part B). `text` is the raw chat markdown (a chat answer with `[n]` citation
+ * markers left in, or the notebook summary). It is stored verbatim as the
+ * note's `markdown` and the note is flagged `origin='chat'`, so it renders
+ * read-only with the chat's markdown + citation-chip stack instead of the
+ * TipTap editor (`content` is still populated as a plaintext projection for
+ * the "Zu Quelle machen" path — see the action).
+ *
+ * `citations` is optional: the notebook summary has none, an answer carries
+ * its `data-citations`. `.optional()` (not `.default([])`) so a caller with no
+ * citations — the summary — doesn't have to pass the field at all; the action
+ * normalizes a missing value to `[]`.
  */
 export const SaveTextAsNoteSchema = z.object({
   notebookId: z.uuid("Ungültige Notizbuch-ID"),
   title: z.string().trim().min(1).max(255),
   text: z.string().trim().min(1, "Kein Text zum Speichern vorhanden."),
+  citations: z.array(CitationDetailSchema).optional(),
 })
 
 /** Input for `convertNoteToSourceAction` ("Zu Quelle machen") — only the

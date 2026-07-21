@@ -115,7 +115,17 @@ class NoteService {
    */
   async update(
     id: string,
-    data: { title?: string; content?: Record<string, unknown> },
+    data: {
+      title?: string
+      content?: Record<string, unknown>
+      // Set only by `saveTextAsNoteAction` when capturing a chat answer/
+      // summary — a hand-authored note's autosave never touches these, so
+      // they stay `undefined` and the patch leaves them alone. `origin='chat'`
+      // is what flips the note to the read-only markdown+citations renderer.
+      origin?: "user" | "chat"
+      markdown?: string
+      citations?: unknown[]
+    },
     userId: string
   ): Promise<Note> {
     void userId
@@ -134,6 +144,14 @@ class NoteService {
       // `editor.getJSON()` ever produces — plain objects/arrays/strings/
       // numbers/booleans/null — is always valid JSON.
       patch.content = data.content as Json
+    }
+    if (data.origin !== undefined) patch.origin = data.origin
+    if (data.markdown !== undefined) patch.markdown = data.markdown
+    if (data.citations !== undefined) {
+      // Already shape-validated by `SaveTextAsNoteSchema`'s `CitationDetailSchema`
+      // — a `CitationDetail[]` is plain JSON, same `Json`-union caveat as
+      // `content` above.
+      patch.citations = data.citations as Json
     }
 
     const { data: note, error } = await this.client

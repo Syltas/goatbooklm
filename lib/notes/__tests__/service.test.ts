@@ -59,6 +59,9 @@ const NOTE_ROW: Note = {
   user_id: USER_ID,
   title: "Meine Notiz",
   content: {},
+  origin: "user",
+  markdown: null,
+  citations: null,
   created_at: "2026-07-01T00:00:00.000Z",
   updated_at: "2026-07-01T00:00:00.000Z",
 }
