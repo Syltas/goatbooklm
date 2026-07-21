@@ -78,3 +78,4 @@ supabase/.branches
 
 # Audio-Spike-Ausgaben (scripts/audio-spike.ts)
 /spike-out/
+docs/chat-exports/
