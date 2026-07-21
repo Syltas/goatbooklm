@@ -220,6 +220,8 @@ Das gesamte Projekt entstand in **~3 Tagen** (19.–21.07.2026) in Pair-Sessions
 3. **Parallele Sessions via Git-Worktrees.** Die Studio-Features entstanden in einem eigenen Worktree parallel zur Core-Loop-Arbeit — mit expliziter Konfliktflächen-Minimierung („neue Dateien bevorzugt") als Teil der Spec.
 4. **QA, Security-Review und Evals durch Claude Code selbst:** systematische QA-Runden gegen die laufende App, ein abschließender Security-Review (fand u.a. einen SSRF-Bypass über IPv4-mapped-IPv6-Adressen — gefixt in `1efac9a`) und LLM-Evals für den Grounding-Guardrail.
 
+**Skills & Tooling.** Die projekteigenen Skills liegen versioniert im Repo unter [`.claude/`](.claude/): eigene Slash-Commands (`feature-builder`, `feature-spec`, `spec-review`) und Skill-Packs (`postgres-expert`, `server-action-builder`, `service-builder`, `react-form-builder`, `playwright-e2e`), die die wiederkehrenden Muster dieses Stacks kodifizieren. Zusätzlich kamen die Skills der **gstack**-Suite (Garry Tan / Y Combinator, MIT) zum Einsatz — u. a. `spec` (Intent → Spec), `investigate` (Root-Cause-Debugging), `review` (Pre-Merge-Review), `qa`, `design-review` und `ship`. gstack ist als externes Tooling installiert und nicht ins Repo vendored (eigene Lizenz, eigenes Repo).
+
 Die vollständigen, ungekürzten Session-Transkripte liegen in [`docs/chat-exports/`](docs/chat-exports/) (12 Dateien, vom Initial-Scaffold bis zur Worker-Parallelisierung) — wer nachlesen will, wie ein Feature von der vagen Idee zur Spec zur Implementierung wurde, findet dort den kompletten Verlauf.
 
 ## Lizenz
