@@ -1,0 +1,163 @@
+{
+  "notebookId": "f07b2ca2-6dd4-41f1-ada1-9dc933d38b9b",
+  "notebookTitle": "Physik",
+  "description": "RAG-Retrieval-Eval gegen das Physik-Notebook (16 arXiv-Paper Gravitationsphysik/Kosmologie + 1 Chat-Notiz). Kategorien: overview (Querschnittsfragen, Hit = Antwort mit >= minSources verschiedenen zitierten Quellen), specific (Detailfrage zu genau einem Paper, Hit = erwartete Quelle unter den Zitaten), offtopic (nicht abgedeckt, korrekt = Refusal).",
+  "questions": [
+    {
+      "id": "ov-1",
+      "category": "overview",
+      "question": "Worum geht es in meinen Quellen insgesamt? Gib mir einen kurzen thematischen Überblick.",
+      "minSources": 3
+    },
+    {
+      "id": "ov-2",
+      "category": "overview",
+      "question": "Welche Quellen beschäftigen sich mit modifizierten Gravitationstheorien wie f(R)- oder f(Q)-Gravitation?",
+      "minSources": 2
+    },
+    {
+      "id": "ov-3",
+      "category": "overview",
+      "question": "Welche Rolle spielt Dunkle Energie in meinen Quellen und welche Modelle werden dafür vorgeschlagen?",
+      "minSources": 2
+    },
+    {
+      "id": "ov-4",
+      "category": "overview",
+      "question": "Welche Quellen behandeln Gravitationswellen und was sind ihre jeweiligen Kernaussagen?",
+      "minSources": 2
+    },
+    {
+      "id": "ov-5",
+      "category": "overview",
+      "question": "Welche verschiedenen Typen von Schwarzen Löchern werden in den Quellen untersucht?",
+      "minSources": 3
+    },
+    {
+      "id": "sp-01275",
+      "category": "specific",
+      "question": "Was untersucht die Arbeit zu Kasner-Lösungen in der Lovelock-Gravitation, und welcher Metrik-Ansatz wird dabei verwendet?",
+      "expectedSources": ["2601.01275v1"]
+    },
+    {
+      "id": "sp-01198",
+      "category": "specific",
+      "question": "Was ist die Polymer Parameterized Field Theory und welche Spannung zwischen Flächen-Spektren und Lorentz-Kovarianz wird mit ihr untersucht?",
+      "expectedSources": ["2601.01198v1"]
+    },
+    {
+      "id": "sp-01028",
+      "category": "specific",
+      "question": "Welche Masse erhält der propagierende Skalarmodus im modifizierten Starobinsky-Modell f(R) = R + αR² − 2Λ?",
+      "expectedSources": ["2601.01028v1"]
+    },
+    {
+      "id": "sp-00954",
+      "category": "specific",
+      "question": "In welcher Eichung wird die Metrikstörung des gezeitengestörten Kerr-Schwarzen-Lochs rekonstruiert, und welche Gleichung wird dafür gelöst?",
+      "expectedSources": ["2601.00954v2"]
+    },
+    {
+      "id": "sp-00929",
+      "category": "specific",
+      "question": "Welcher kompakte Stern dient als Beispiel für das anisotrope Hybridstern-Modell in der f(Q)-Gravitation, und wie werden Quark- und hadronische Materie jeweils beschrieben?",
+      "expectedSources": ["2601.00929v1"]
+    },
+    {
+      "id": "sp-00774",
+      "category": "specific",
+      "question": "Mit welchen numerischen Tools werden die Geschwindigkeitsfelder skalarer Störungen bei der Untersuchung primordialer Magnetfelder evolviert?",
+      "expectedSources": ["2601.00774v1"]
+    },
+    {
+      "id": "sp-01395",
+      "category": "specific",
+      "question": "Was passiert laut der numerischen Analyse mit dem zusätzlichen skalaren Freiheitsgrad in f(R) = R + αRⁿ Kosmologien?",
+      "expectedSources": ["2601.01395v2"]
+    },
+    {
+      "id": "sp-00989",
+      "category": "specific",
+      "question": "Auf welche realen astrophysikalischen Systeme wird das Rot- und Blauverschiebungsmodell für Schwarzschild-de-Sitter-Schwarze-Löcher erstmals angewandt?",
+      "expectedSources": ["2601.00989v2"]
+    },
+    {
+      "id": "sp-00565",
+      "category": "specific",
+      "question": "Zu welcher Lösung sind statische, asymptotisch flache Einstein-Maxwell-Raumzeiten mit einer nicht-extremalen massiven Teilchensphäre isometrisch?",
+      "expectedSources": ["2601.00565v1"]
+    },
+    {
+      "id": "sp-00419",
+      "category": "specific",
+      "question": "Welche zwei dynamischen Vakuumenergiemodelle werden in der Brans-Dicke-Arbeit zur spätzeitlichen beschleunigten Expansion betrachtet?",
+      "expectedSources": ["2601.00419v2"]
+    },
+    {
+      "id": "sp-00185",
+      "category": "specific",
+      "question": "Welche klassischen Ergebnisse werden im LQG-EMRI-Vergleich wiederhergestellt, wenn der Quantenparameter ζ auf null gesetzt wird?",
+      "expectedSources": ["2601.00185v2"]
+    },
+    {
+      "id": "sp-00550",
+      "category": "specific",
+      "question": "Mit welchem Zahlentripel werden periodische Bahnen um das Destounis-Suvorov-Kokkotas-Schwarzloch klassifiziert und was beschreibt es?",
+      "expectedSources": ["2601.00550v6"]
+    },
+    {
+      "id": "sp-00639",
+      "category": "specific",
+      "question": "Wie zerlegt Volovik die de-Sitter-Kosmologie im Zwei-Flüssigkeiten-Ansatz und welche Zustandsgleichungen haben die beiden Komponenten?",
+      "expectedSources": ["2601.00639v5"]
+    },
+    {
+      "id": "sp-00582",
+      "category": "specific",
+      "question": "Welche Form des Brans-Dicke-Skalarfeldes und welcher Wechselwirkungsterm werden im Ghost-Dark-Energy-Modell verwendet?",
+      "expectedSources": ["2601.00582v1"]
+    },
+    {
+      "id": "sp-00771",
+      "category": "specific",
+      "question": "Auf welche Gravitationstheorie wird die Reall-Santos-Methode als konkretes Beispiel angewandt, und was ist der Vorteil der Methode?",
+      "expectedSources": ["2601.00771v2"]
+    },
+    {
+      "id": "sp-00704",
+      "category": "specific",
+      "question": "Was ist die „exceptional line“ bei den Quasinormalmoden im Nariai-Limes, und in welchem Parameterraum liegt sie?",
+      "expectedSources": ["2601.00704v2"]
+    },
+    {
+      "id": "ot-1",
+      "category": "offtopic",
+      "question": "Wie backe ich ein gutes Sauerteigbrot?"
+    },
+    {
+      "id": "ot-2",
+      "category": "offtopic",
+      "question": "Wer hat die Fußball-Weltmeisterschaft 2022 gewonnen?"
+    },
+    {
+      "id": "ot-3",
+      "category": "offtopic",
+      "question": "Was ist die Hauptstadt von Australien?"
+    },
+    {
+      "id": "ot-4",
+      "category": "offtopic",
+      "question": "Schreib mir ein kurzes Gedicht über den Sommer."
+    },
+    {
+      "id": "ot-5",
+      "category": "offtopic",
+      "question": "Was sagen meine Quellen über die Detektion von Dunkler Materie mit Xenon-Detektoren wie XENONnT?"
+    },
+    {
+      "id": "ot-6",
+      "category": "offtopic",
+      "question": "Wie funktioniert der Higgs-Mechanismus im Standardmodell der Teilchenphysik?"
+    }
+  ]
+}

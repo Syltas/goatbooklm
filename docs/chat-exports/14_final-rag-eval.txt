@@ -1,0 +1,525 @@
+ ▐▛███▜▌   Claude Code v2.1.216
+▝▜█████▛▘  Fable 5 · Claude Max
+  ▘▘ ▝▝    ~/Projects/notebooklm-clone
+
+ ▎ Fable 5 is now a standard part of your Max plan
+ ▎ You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits. Fable 5 draws down usage faster than Opus 4.8. Run /model and select Fable to use it. Learn more: https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-access
+
+❯ /model fable                                                                  
+  ⎿  Set model to Fable 5 and saved as your default for new sessions
+
+❯ gut jetzt würd ich gern Evals für unser RAG laufen lassen. bitte hier in      
+  diesem notebook                                                               
+  http://localhost:3100/notebooks/f07b2ca2-6dd4-41f1-ada1-9dc933d38b9b hat 17   
+  physik paper als quellen, sieh sie dir bitte in der Datenbank an. Dann bau    
+  bitte ein Question JSON mit fragen von typ "overview" "specific" "offtopic"   
+  mit entsprechenden Fragen und gib mir das einmal zum durchschauen. Dann       
+  lassen wir die Fragen einmal gegen unser Notebook laufen und sehen uns die    
+  hitrate sowie refusal an. Kannst du mir bitte die JSON und ein passendes      
+  Script generieren? Der Output soll einmal als CSV kommen und einmal als       
+  Grafik die wir in das Readme einbetten können danke                           
+
+⏺ Plan: Quellen aus DB ziehen → Chat-API-Shape checken → Questions-JSON +
+  Eval-Script bauen → dir JSON zum Review geben. Start: DB.
+
+⏺ Bash(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "\dt
+      public.*")
+  ⎿  Error: Exit code 127
+     (eval):1: command not found: psql
+
+⏺ Bash(ls /opt/homebrew/opt/libpq/bin/psql 2>/dev/null; ls
+      /Applications/Postgres.app/Contents/Versions/*/bin/psql 2>/dev/null; which
+      supabase; supabase status 2>/dev/…)
+  ⎿  (eval):1: no matches found: /Applications/Postgres.app/Contents/Versio
+     ns/*/bin/psql
+     /opt/homebrew/bin/supabase
+     … +19 lines (ctrl+o to expand)
+
+⏺ Bash(docker exec supabase_db_notebooklm-clone psql -U postgres -d postgres -c
+      "\dt public.*" 2>/dev/null || docker ps --format '{{.Names}}' | grep -i
+      db)
+  ⎿  supabase_db_goatbooklm
+     supabase_db_revel
+
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c "\dt
+      public.*")
+  ⎿                    List of relations
+      Schema |          Name           | Type  |  Owner
+     --------+-------------------------+-------+----------
+     … +10 lines (ctrl+o to expand)
+
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c
+      "select id, title, status, char_length(coalesce(summary,'')) as
+      summary_len, (select count(*)…)
+  ⎿                    id                  |     title      | status | summ
+     ary_len | chunk_count
+     --------------------------------------+----------------+--------+-----
+     … +23 lines (ctrl+o to expand)
+
+⏺ 17 Sources ready (16 arXiv-Paper + 1 Chat-Notiz). Titel nur arXiv-IDs → hole
+  Summaries für Fragen-Inhalt.
+
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c
+      "select title, summary from sources where notebook_id =
+      'f07b2ca2-6dd4-41f1-ada1-9dc933d38b9b…)
+  ⎿       title      |
+     … +345 lines (ctrl+o to expand)
+
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c
+      "select left(content, 400) from chunks where source_id =
+      '04eca3cd-a268-431d-ab42-2a4a2aec1be…)
+  ⎿                                                left
+
+     ----------------------------------------------------------------------
+     … +17 lines (ctrl+o to expand)
+
+  Searched for 1 pattern, read 1 file, listed 3 directories (ctrl+o to expand)
+
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c
+      "select n.user_id, u.email, n.title from notebooks n join auth.users u on
+      u.id = n.user_id wh…)
+  ⎿                 user_id                |          email          | titl
+     e
+     --------------------------------------+-------------------------+-----
+     … +4 lines (ctrl+o to expand)
+
+⏺ Bash(grep -E "SUPABASE|ANON|SERVICE" .env.local .env 2>/dev/null | sed
+      's/=.*/=***/' )
+  ⎿  NEXT_PUBLIC_SUPABASE_URL=***
+     NEXT_PUBLIC_SUPABASE_ANON_KEY=***
+     SUPABASE_SERVICE_ROLE_KEY=***
+
+  Searched for 4 patterns, listed 1 directory (ctrl+o to expand)
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c
+      "select count(*), max(created_at) from messages where notebook_id =
+      'f07b2ca2-6dd4-41f1-ada1-…)
+  ⎿   count |              max
+     -------+-------------------------------
+         18 | 2026-07-21 13:22:56.333271+00
+     (1 row)
+
+  Searched for 2 patterns, read 2 files (ctrl+o to expand)
+
+⏺ Bash(grep -n '"devDependencies"' -A 25 package.json | grep -E
+      "tsx|ts-node|dotenv|vitest"; node --version)
+  ⎿  68-    "vitest": "^4.1.10"
+     v25.8.1
+
+⏺ Skill(dataviz)
+  ⎿  Successfully loaded skill
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Bash(docker exec supabase_db_goatbooklm psql -U postgres -d postgres -c "\d
+      public.messages" | head -25)
+  ⎿                                Table "public.messages"
+        Column    |           Type           | Collation | Nullable |
+     Default
+     … +22 lines (ctrl+o to expand)
+
+⏺ Schema simpel → Restore via select * + insert klappt. Schreibe jetzt
+  Questions-JSON + Script.
+
+⏺ Write(evals/rag/questions.json)
+  ⎿  Wrote 163 lines to evals/rag/questions.json
+       1 {
+       3   "notebookTitle": "Physik",
+       4   "description": "RAG-Retrieval-Eval gegen das Physik-Notebook (
+         tegorien: overview (Querschnittsfragen, Hit = Antwort mit >= min
+         zu genau einem Paper, Hit = erwartete Quelle unter den Zitaten),
+          offtopic (nicht abgedeckt, korrekt = Refusal).",
+       6     {
+       7       "id": "ov-1",
+       9       "question": "Worum geht es in meinen Quellen insgesamt? Gi
+      10       "minSources": 3
+     … +196 lines (ctrl+o to expand)
+
+⏺ Write(evals/rag/run-eval.mts)
+  ⎿  Wrote 517 lines to evals/rag/run-eval.mts
+       1 /**
+          /api/chat`),
+         _summaries`,
+       4  * Grounding-Prompt und Refusal-Normalisierung. Bewusst NICHT Te
+       5  * `pnpm eval` (das sind die fixture-basierten Prompt-Evals): di
+       6  * braucht den laufenden Dev-Server + die lokale Supabase-Instan
+       7  *
+       8  * Aufruf:   node evals/rag/run-eval.mts            (Node >= 23,
+       9  * Optionen: --base http://localhost:3100   Ziel-App
+         : ./questions.json)
+     … +613 lines (ctrl+o to expand)
+
+⏺ Bash(node --check evals/rag/run-eval.mts && echo SYNTAX_OK; curl -s -o
+      /dev/null -w "%{http_code}" http://localhost:3100 --max-time 3)
+  ⎿  SYNTAX_OK
+     200
+
+  Made 1 scratchpad edit +48 (ctrl+o to expand)
+
+⏺ Bash(node /private/tmp/claude-501/-Users-andy-Projects-notebooklm-clone/ccd875
+      bd-53d4-4482-b8d7-c9b30947b194/scratchpad/login-smoke.mts 2>&1 | tail -10)
+  ⎿      at #cachedDefaultResolve (node:internal/modules/esm/loader:697:20)
+         at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/
+     loader:714:38)
+     … +11 lines (ctrl+o to expand)
+
+⏺ Bash(cp /private/tmp/claude-501/-Users-andy-Projects-notebooklm-clone/ccd875bd
+      -53d4-4482-b8d7-c9b30947b194/scratchpad/login-smoke.mts
+      /Users/andy/Projects/notebooklm…)
+  ⎿  owner: andreas@william-rau.com
+     session ok, user: dfc1fe1b-2f3a-47c2-adf4-9794c0e308fb
+     cookies: [ 'sb-127-auth-token' ]
+     status (expect 404): 404 - Notizbuch nicht gefunden.
+
+⏺ Fertig gebaut + Auth verifiziert (Magiclink-Login → sb-127-auth-token → App
+  antwortet 404 statt 401 = Session gültig, 0 LLM-Kosten). Eval noch nicht
+  gelaufen — erst dein Review.
+
+  Dateien
+
+  - evals/rag/questions.json — 27 Fragen
+  - evals/rag/run-eval.mts — Runner, Output: CSV + Summary-CSV + README-SVG
+  (light/dark) + Results-JSON nach evals/rag/out/
+
+  Fragen zum Durchschauen
+
+  overview (5) — Hit = Antwort mit ≥ minSources verschiedenen zitierten Quellen:
+
+  ┌──────┬─────────────────────────────────────────────────────────────┬─────┐
+  │  id  │                            Frage                            │ min │
+  ├──────┼─────────────────────────────────────────────────────────────┼─────┤
+  │ ov-1 │ Worum geht es in meinen Quellen insgesamt? Kurzer           │ 3   │
+  │      │ thematischer Überblick.                                     │     │
+  ├──────┼─────────────────────────────────────────────────────────────┼─────┤
+  │ ov-2 │ Welche Quellen behandeln modifizierte Gravitationstheorien  │ 2   │
+  │      │ (f(R)/f(Q))?                                                │     │
+  ├──────┼─────────────────────────────────────────────────────────────┼─────┤
+  │ ov-3 │ Welche Rolle spielt Dunkle Energie, welche Modelle?         │ 2   │
+  ├──────┼─────────────────────────────────────────────────────────────┼─────┤
+  │ ov-4 │ Welche Quellen behandeln Gravitationswellen + Kernaussagen? │ 2   │
+  ├──────┼─────────────────────────────────────────────────────────────┼─────┤
+  │ ov-5 │ Welche Typen Schwarzer Löcher werden untersucht?            │ 3   │
+  └──────┴─────────────────────────────────────────────────────────────┴─────┘
+
+  specific (16) — 1 Frage pro Paper, Hit = erwartetes Paper unter Zitaten.
+  Jeweils auf konkretes Faktum aus Summary/Chunks gezielt:
+
+  ┌──────────┬──────────────┬────────────────────────────────────────────────┐
+  │    id    │  Ziel-Paper  │                     Faktum                     │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-01275 │ 2601.01275v1 │ Kasner/Lovelock, Bianchi-I-Ansatz              │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-01198 │ 2601.01198v1 │ PPFT, Flächenspektren vs. Lorentz-Boosts       │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-01028 │ 2601.01028v1 │ Skalarmodus-Masse mψ²=1/(6α) im                │
+  │          │              │ Starobinsky-Modell                             │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00954 │ 2601.00954v2 │ Outgoing-Radiation-Gauge, Teukolsky-Gleichung  │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00929 │ 2601.00929v1 │ EXO 1785-248, MIT-Bag + lineare EoS            │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00774 │ 2601.00774v1 │ Einstein Toolkit + FLRWSolver                  │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-01395 │ 2601.01395v2 │ Skalarfreiheitsgrad friert ein, wird massiv    │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00989 │ 2601.00989v2 │ 5 Megamaser/AGN-Systeme                        │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00565 │ 2601.00565v1 │ isometrisch zu Reissner-Nordström              │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00419 │ 2601.00419v2 │ 2 dynamische Vakuummodelle in Brans-Dicke      │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00185 │ 2601.00185v2 │ Peters-Mathews bei ζ=0 (Summary kaputt, Chunks │
+  │          │              │  ok — bewusst drin als Härtetest)              │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00550 │ 2601.00550v6 │ Zahlentripel (z, w, v), Zoom-Whirl             │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00639 │ 2601.00639v5 │ Zwei-Flüssigkeiten w=−1 / w=1                  │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00582 │ 2601.00582v1 │ logarithmisches BD-Feld, vorzeichenwechselnde  │
+  │          │              │ WW                                             │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00771 │ 2601.00771v2 │ Reall-Santos auf Einstein-Gauss-Bonnet         │
+  ├──────────┼──────────────┼────────────────────────────────────────────────┤
+  │ sp-00704 │ 2601.00704v2 │ Exceptional Line im (μ, a)-Raum                │
+  └──────────┴──────────────┴────────────────────────────────────────────────┘
+
+  offtopic (6) — korrekt = Refusal (isRefusal-Flag aus Stream):
+
+  ┌──────┬───────────────────────────────────────────────────────────────────┐
+  │  id  │                               Frage                               │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ ot-1 │ Sauerteigbrot backen                                              │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ ot-2 │ Fußball-WM 2022                                                   │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ ot-3 │ Hauptstadt Australien                                             │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ ot-4 │ Sommergedicht                                                     │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ ot-5 │ Hard negative: Dunkle-Materie-Detektion mit XENONnT (physiknah,   │
+  │      │ nicht in Quellen)                                                 │
+  ├──────┼───────────────────────────────────────────────────────────────────┤
+  │ ot-6 │ Hard negative: Higgs-Mechanismus (Physik, nicht in Quellen)       │
+  └──────┴───────────────────────────────────────────────────────────────────┘
+
+  Wichtig fürs Laufenlassen
+
+  - Notebook hat 18 bestehende Chat-Messages + HISTORY_WINDOW=6 → Script parkt
+  History (Backup-JSON → Delete → Restore am Ende, auch bei Crash via finally).
+  Jede Frage läuft gegen leere History, nach jedem Turn werden Eval-Messages
+  gelöscht. --keep-history schaltet das ab.
+  - Rate-Limit 30/min → sequenziell + Pacing, passt.
+  - Kosten: 27 × Sonnet-5-Call mit ~12 Chunks Kontext, grob $0.50–1.
+
+  Start: node evals/rag/run-eval.mts
+
+  Fragen ok so, oder was ändern? Danach lass ich es laufen.
+✻ Churned for 9m 37s
+
+❯ top sieht gut aus lass laufen                                                 
+
+⏺ Läuft. Background-Run (27 Fragen × ~15-30s ≈ 10-15 min):
+
+⏺ Bash(node evals/rag/run-eval.mts 2>&1 | tee evals/rag/out/run.log)
+  ⎿  Running in the background (↓ to manage)
+
+⏺ Bash(sleep 45; cat /private/tmp/claude-501/-Users-andy-Projects-notebooklm-clo
+      ne/ccd875bd-53d4-4482-b8d7-c9b30947b194/tasks/bl2k49d27.output)
+  ⎿  Error: Blocked: sleep 45 followed by: cat 
+     /private/tmp/claude-501/-Users-andy-Projects-notebooklm-clone/ccd875bd-53d4
+     -4482-b8d7-c9b30947b194/tasks/bl2k49d27.output. To wait for a condition, 
+     use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To
+     wait for a command you started, use run_in_background: true. Do not chain 
+     shorter sleeps to work around this block.
+
+⏺ Background command "Run full RAG eval against local app" failed with exit code
+1
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(evals/rag/questions.json)
+  ⎿  Added 1 line, removed 1 line
+      126      {
+      127        "id": "sp-00704",
+      128        "category": "specific",
+      129 -      "question": "Was ist die „exceptional line" bei den Quas
+          -inormalmoden im Nariai-Limes, und in welchem Parameterraum lie
+          -gt sie?",                                                     
+      129 +      "question": "Was ist die „exceptional line“ bei den Quas
+          +inormalmoden im Nariai-Limes, und in welchem Parameterraum lie
+          +gt sie?",                                                     
+      130        "expectedSources": ["2601.00704v2"]
+      131      },
+      132      {
+
+⏺ Bash(mkdir -p evals/rag/out && node -e "JSON.parse(require('fs').readFileSync(
+      'evals/rag/questions.json','utf8')); console.log('JSON_OK')")
+  ⎿  JSON_OK
+
+⏺ Bash(node evals/rag/run-eval.mts 2>&1 | tee evals/rag/out/run.log)
+  ⎿  Running in the background (↓ to manage)
+
+⏺ Monitor(RAG-Eval: Misses/Fehler/Summary)
+  ⎿  Monitor started · task bw4yndqv3 · timeout 1500s
+
+⏺ Eval läuft wieder (Task bjo4w9h8d), Monitor meldet Misses/Fehler/Summary.
+  Melde mich mit Ergebnis.
+
+✻ Sautéed for 43s
+
+※ recap: RAG-Eval für das Physik-Notebook: 27 Fragen (overview/specific/offtopic) laufen gerade end-to-end gegen /api/chat, danach kommen Hitrate und Refusal-Accuracy als CSV plus README-SVG. Nächster Schritt: Ergebnis abwarten und Summary auswerten. (disable recaps in /config)
+
+⏺ Background command "Run full RAG eval against local app" completed (exit code
+0)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Monitor event: "RAG-Eval: Misses/Fehler/Summary"
+
+⏺ Stop Task
+  ⎿  tail -f -n +1 /private/tmp/claude-501/-Users-andy-Projects-notebooklm-
+     clone/ccd875bd-53d4-4482-b8d7-c9b30947b194/tasks/bjo4w9h8d.output |
+     grep -E --line-buffere… · stopped
+
+⏺ Bash(qlmanage -t -s 1000 -o /private/tmp/claude-501/-Users-andy-Projects-noteb
+      ooklm-clone/ccd875bd-53d4-4482-b8d7-c9b30947b194/scratchpad
+      evals/rag/out/rag-eval.svg…)
+  ⎿  Done producing thumbnails
+     login-smoke.mts
+     rag-eval.svg.png
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Chart sauber (Labels kollisionsfrei, Grid rezessiv, Direktbeschriftung).
+  CSV-Spot-Check:
+⏺ Bash(head -4 evals/rag/out/rag-eval.csv | cut -c1-220; echo ---; cat
+      evals/rag/out/rag-eval-summary.csv; docker exec supabase_db_goatbooklm
+      psql -U postgres -d postg…)
+  ⎿  id,category,question,status,refused,citations,distinct_sources,cited_s
+     ources,expected_sources,hit,latency_ms,answer_excerpt
+     ov-1,overview,Worum geht es in meinen Quellen insgesamt? Gib mir einen
+     … +14 lines (ctrl+o to expand)
+
+⏺ Bash(git check-ignore evals/rag/out/rag-eval.svg
+      evals/rag/out/history-backup-1784642556448.json 2>/dev/null; git status
+      --short evals/ | head)
+  ⎿  ?? evals/rag/
+
+⏺ Write(evals/rag/.gitignore)
+  ⎿  Wrote 3 lines to evals/rag/.gitignore
+      1 # Laufzeit-Artefakte — CSV/SVG/results.json sind committbar, Back
+        ups/Logs nicht.
+      2 out/history-backup-*.json
+      3 out/run.log
+
+⏺ Ergebnis: 27/27 — alle 3 Kategorien 100 %.
+
+  ┌──────────────┬───────────────────────────────────────────┬──────────────┐
+  │  Kategorie   │                  Metrik                   │   Ergebnis   │
+  ├──────────────┼───────────────────────────────────────────┼──────────────┤
+  │ Overview (5) │ Antwort mit ≥ minSources verschiedenen    │ 100 % (5/5)  │
+  │              │ Quellen                                   │              │
+  ├──────────────┼───────────────────────────────────────────┼──────────────┤
+  │ Specific     │ erwartetes Paper unter den Zitaten        │ 100 %        │
+  │ (16)         │                                           │ (16/16)      │
+  ├──────────────┼───────────────────────────────────────────┼──────────────┤
+  │ Offtopic (6) │ korrekt verweigert (isRefusal)            │ 100 % (6/6)  │
+  └──────────────┴───────────────────────────────────────────┴──────────────┘
+
+  Details, die das Ergebnis glaubwürdig machen:
+
+  - Specific: jede der 16 Fragen zitierte exakt das eine erwartete Paper, keine
+  Beifänge — auch sp-00185 (kaputte Summary, Retrieval nur über Chunks) saß.
+  - Offtopic: alle 6 Refusals mit 0 Zitaten, inkl. der beiden Hard Negatives
+  (XENONnT, Higgs-Mechanismus — physiknah, aber nicht in Quellen). Refusals
+  kamen in 2–7 s (kein LLM-Rumeiern).
+  - Overview: 2–7 verschiedene Quellen pro Antwort; die
+  Doc-Summary-Retrieval-Schicht (multi-granularity) greift sichtbar — Notiz aus 
+  Chat und Summaries tauchen genau bei Querschnittsfragen auf.
+  - Latenz: Median ~9 s (specific), bis 29 s (lange Overview-Synthesen).
+  - History sauber: 18 Original-Messages geparkt → restauriert, DB-Count
+  verifiziert wieder 18.
+
+  Ein Stolperer im ersten Lauf: ASCII-" in der sp-00704-Frage brach das JSON —
+  gefixt („…“), zweiter Lauf durch.
+
+  Outputs (in evals/rag/out/):
+  - rag-eval.csv — pro Frage: Status, Zitate, Quellen, Hit, Latenz,
+  Antwort-Auszug
+  - rag-eval-summary.csv — Aggregat
+  - rag-eval.svg — README-Chart, light/dark via prefers-color-scheme, visuell
+  geprüft
+  - rag-eval-results.json — Volltext-Antworten für Nachanalyse
+
+  README-Embed:
+  ![RAG Eval](evals/rag/out/rag-eval.svg)
+
+  .gitignore in evals/rag/ angelegt: History-Backups (echte Chat-Inhalte) +
+  run.log bleiben draußen, CSV/SVG/JSON committbar. Committen wie immer du
+  selbst.
+
+  Ehrliche Einordnung: 100 % heißt hier auch — die Fragen enthalten distinktive
+  Fachbegriffe pro Paper, das macht Retrieval leicht. Wenn du das Eval schärfer
+  willst: paraphrasierte Fragen ohne Titel-Vokabular ("das Paper über Sterne aus
+  zwei Materiesorten") oder Fragen, deren Antwort in 2 Papern liegt. Sag
+  Bescheid, dann erweitere ich das Set.
+
+✻ Baked for 1m 6s
+
+❯ Sehr nice bitte in README mit reinnehmjen                                     
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ README hat schon Eval-Erwähnung (Scripts-Sektion). Füge Ergebnis-Subsection
+  mit Chart nach „Retrieval & Grounding" ein:
+
+⏺ Update(README.md)
+  ⎿  Added 16 lines
+       92  - **Guardrail in 3 Schichten:** (1) System-Prompt mit wörtlich
+            definierter Verweigerungsantwort, (2) deterministisches Gate 
+           bei 0 `ready`-Quellen, (3) Post-Validierung aller `[n]`-Marker
+            gegen die tatsächlich retrieveten Chunks — halluzinierte Zita
+           te werden gestrichen. Quellentext wird escaped und als Daten, 
+           nicht als Instruktionen behandelt (Prompt-Injection-Härtung).
+       93  - Persistenz der Chat-History in `after()` — überlebt Client-D
+           isconnects; abgebrochene Streams werden mit „unvollständig"-Hi
+           nweis gerettet.
+       94  
+       95 +### RAG-Eval                                                  
+       96 +                                                              
+       97 +Das Retrieval wird end-to-end gemessen (`evals/rag/`): das Eva
+          +l loggt sich als echter User ein und stellt 27 Fragen über die
+          + echte `/api/chat`-Strecke (Embedding → Multi-Granularitäts-Re
+          +trieval → Grounding-Prompt) gegen ein Notebook mit 17 Physik-Q
+          +uellen (16 arXiv-Paper Gravitationsphysik/Kosmologie + 1 Notiz
+          +).                                                            
+       98 +                                                              
+       99 +![RAG-Eval-Ergebnisse](evals/rag/out/rag-eval.svg)            
+      100 +                                                              
+      101 +| Kategorie | Fragen | Hit-Kriterium | Ergebnis |             
+      102 +|---|---|---|---|                                             
+      103 +| **Overview** | 5 | Antwort zitiert ≥ 2–3 verschiedene Quelle
+          +n (Querschnittsfrage) | 100 % |                               
+      104 +| **Specific** | 16 | Detailfrage zu genau einem Paper — erwar
+          +tete Quelle unter den Zitaten | 100 % |                       
+      105 +| **Offtopic** | 6 | korrekt verweigert, 0 Zitate — inkl. zwei
+          + physiknaher Hard Negatives | 100 % |                         
+      106 +                                                              
+      107 +Jede Frage läuft gegen leere Chat-History (bestehende Messages
+          + werden geparkt und wiederhergestellt), Refusals werden über d
+          +as `isRefusal`-Signal des Streams erkannt, nicht über Text-Mat
+          +ching. Fair einzuordnen: die Specific-Fragen enthalten distink
+          +tives Fach-Vokabular ihres Ziel-Papers — das misst die Baselin
+          +e, nicht den härtesten Fall. Genau dafür ist das Harness da: p
+          +araphrasierte Fragensets und Rerank-Varianten lassen sich dami
+          +t messbar vergleichen (siehe Roadmap).                        
+      108 +                                                              
+      109 +Reproduzieren: `node evals/rag/run-eval.mts` (braucht laufende
+          +n Dev-Server + lokale Supabase). Output: CSV pro Frage, Summar
+          +y-CSV, das SVG oben (light/dark) und ein Results-JSON mit den 
+          +Volltext-Antworten.                                           
+      110 +                                                              
+      111  ### Audio-Pipeline (Podcast)
+      112  
+      113  Eigene pgmq-Queue `studio_audio`, eigener Worker (`app/api/stu
+           dio-worker/route.ts` → `lib/studio/audio-worker.ts`), als **Ph
+           asen-Job** mit Checkpoint statt Ein-Schuss:
+
+⏺ Scripts-Absatz kürzen — Details stehen jetzt oben, Doppelung raus:
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      199  | `pnpm lint` / `pnpm exec tsc --noEmit` | Lint / Typecheck |
+      200  | `pnpm db:reset` | DB-Reset + Worker-URL-Override anwenden |
+      201  
+      202 -Dazu Playwright-E2E-Tests (`pnpm exec playwright test`; starte
+          -t die App selbst auf 3100) und ein End-to-End-**RAG-Retrieval-
+          -Eval** (`evals/rag/`): loggt sich als echter User ein, stellt 
+          -Übersichts-, Detail- und Off-Topic-Fragen gegen ein 17-Quellen
+          --Physik-Notebook über die echte `/api/chat`-Strecke und scored
+          - Trefferquote bzw. korrekte Verweigerung (Output: CSV + SVG-Ch
+          -art).                                                         
+      202 +Dazu Playwright-E2E-Tests (`pnpm exec playwright test`; starte
+          +t die App selbst auf 3100) und das End-to-End-**RAG-Retrieval-
+          +Eval** (`node evals/rag/run-eval.mts`) — Aufbau und Ergebnisse
+          + unter [RAG-Eval](#rag-eval).                                 
+      203  
+      204  ## Roadmap / Ideen
+      205  
+
+⏺ README aktualisiert:
+
+  - Neue Subsection „RAG-Eval" unter Architektur, direkt nach „Retrieval &
+  Grounding": Beschreibung des Setups, eingebettetes SVG-Chart
+  (evals/rag/out/rag-eval.svg, light/dark), Ergebnis-Tabelle (3×100 %),
+  Methodik-Hinweise (History-Parking, isRefusal-Signal) + ehrliche Einordnung
+  (distinktives Vokabular = Baseline-Messung) mit Brücke zur Rerank-Roadmap.
+  - Scripts-Absatz entschlackt — verweist jetzt auf die Sektion statt alles
+  doppelt zu erklären.
+
+  Chart-Datei liegt im Repo-Pfad, .gitignore lässt sie durch (nur Backups +
+  run.log geblockt) → rendert auf GitHub nach Commit. Committen wie gewohnt du
+  selbst — betroffene Files: README.md, evals/rag/ (questions.json,
+  run-eval.mts, .gitignore, out/rag-eval.{svg,csv}, rag-eval-summary.csv,
+  rag-eval-results.json).
+
+✻ Cooked for 43s

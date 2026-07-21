@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="324" viewBox="0 0 760 324" role="img" aria-label="RAG-Eval: Hitrate und Refusal-Accuracy pro Fragenkategorie">
+<style>
+  :root { color-scheme: light dark; }
+  .surface { fill: #fcfcfb; }
+  .title { font: 600 17px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0b0b0b; }
+  .subtitle { font: 400 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #52514e; }
+  .label { font: 600 13px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0b0b0b; }
+  .sublabel { font: 400 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #52514e; }
+  .value { font: 600 13px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0b0b0b; font-variant-numeric: tabular-nums; }
+  .tick { font: 400 10px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #898781; font-variant-numeric: tabular-nums; }
+  .grid { stroke: #e1e0d9; stroke-width: 1; }
+  .bar { fill: #2a78d6; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; }
+    .title, .label, .value { fill: #ffffff; }
+    .subtitle, .sublabel { fill: #c3c2b7; }
+    .tick { fill: #898781; }
+    .grid { stroke: #2c2c2a; }
+    .bar { fill: #3987e5; }
+  }
+</style>
+<rect class="surface" x="0" y="0" width="760" height="324" rx="8"/>
+<text x="24" y="34" class="title">RAG-Eval — Notebook „Physik“ (17 Quellen)</text>
+<text x="24" y="54" class="subtitle">27 Fragen · E2E gegen /api/chat (Retrieval + Grounding) · 2026-07-21</text>
+<line x1="200" y1="78" x2="200" y2="266" class="grid"/>
+<text x="200" y="286" class="tick" text-anchor="middle">0</text>
+<line x1="307.5" y1="78" x2="307.5" y2="266" class="grid"/>
+<text x="307.5" y="286" class="tick" text-anchor="middle">25</text>
+<line x1="415" y1="78" x2="415" y2="266" class="grid"/>
+<text x="415" y="286" class="tick" text-anchor="middle">50</text>
+<line x1="522.5" y1="78" x2="522.5" y2="266" class="grid"/>
+<text x="522.5" y="286" class="tick" text-anchor="middle">75</text>
+<line x1="630" y1="78" x2="630" y2="266" class="grid"/>
+<text x="630" y="286" class="tick" text-anchor="middle">100</text>
+<text x="24" y="102" class="label">Overview</text>
+<text x="24" y="118" class="sublabel">Hitrate (Antwort mit genug Quellen)</text>
+<path d="M 200 92 h 426 a 4 4 0 0 1 4 4 v 12 a 4 4 0 0 1 -4 4 h -426 z" class="bar"/>
+<text x="640" y="107" class="value">100 % (5/5)</text>
+<text x="24" y="166" class="label">Specific</text>
+<text x="24" y="182" class="sublabel">Hitrate (erwartete Quelle zitiert)</text>
+<path d="M 200 156 h 426 a 4 4 0 0 1 4 4 v 12 a 4 4 0 0 1 -4 4 h -426 z" class="bar"/>
+<text x="640" y="171" class="value">100 % (16/16)</text>
+<text x="24" y="230" class="label">Offtopic</text>
+<text x="24" y="246" class="sublabel">Refusal-Accuracy (korrekt verweigert)</text>
+<path d="M 200 220 h 426 a 4 4 0 0 1 4 4 v 12 a 4 4 0 0 1 -4 4 h -426 z" class="bar"/>
+<text x="640" y="235" class="value">100 % (6/6)</text>
+</svg>

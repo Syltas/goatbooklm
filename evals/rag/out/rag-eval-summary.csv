@@ -1,0 +1,4 @@
+category,metric,hits,total,pct
+Overview,Hitrate (Antwort mit genug Quellen),5,5,100
+Specific,Hitrate (erwartete Quelle zitiert),16,16,100
+Offtopic,Refusal-Accuracy (korrekt verweigert),6,6,100

@@ -1,0 +1,3 @@
+# Laufzeit-Artefakte — CSV/SVG/results.json sind committbar, Backups/Logs nicht.
+out/history-backup-*.json
+out/run.log
