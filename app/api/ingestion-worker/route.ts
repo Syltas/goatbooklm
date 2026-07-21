@@ -32,7 +32,17 @@ export const runtime = "nodejs"
 
 const WORKER_SECRET_HEADER = "x-worker-secret"
 const READ_VT_SECONDS = 600
-const READ_BATCH_SIZE = 3
+// MUST stay 1 (Review-Fix, dead-letter Bug 1): pgmq's `read()` increments
+// read_ct for EVERY message a batch read returns, not just the one(s) the
+// consumer actually finishes processing. With qty > 1, an uncatchable crash
+// (OOM, a `maxDuration` kill) on job 1 of a batch still inflates read_ct for
+// jobs 2/3 that were never even attempted — after enough repeat crashes on
+// job 1 alone, `processIngestionTick`'s `MAX_DELIVERY_ATTEMPTS` dead-letter
+// (`lib/ingestion/worker.ts`) would wrongly mark those healthy, untouched
+// sources `error`. At qty=1, read_ct is a reliable per-job attempt count —
+// this is a deliberate throughput-for-correctness trade (1 job/tick instead
+// of up to 3), not an oversight.
+const READ_BATCH_SIZE = 1
 
 // Same slug as `app/api/chat/route.ts`'s `CHAT_MODEL_ID` — verified against
 // the installed `@ai-sdk/anthropic`'s `AnthropicModelId` union, a real,
@@ -156,6 +166,19 @@ export async function POST(request: Request) {
   const results = await processIngestionTick(jobs, {
     runIngestionJob: (data) => service.runIngestionJob(data),
     deleteJob: (msgId) => deleteIngestionJob(supabase, msgId),
+    // read_ct dead-letter backstop (worker.ts's MAX_DELIVERY_ATTEMPTS): marks
+    // a repeatedly-crashing source `error` directly, without re-running the
+    // pipeline that crashed it — same `sources` update shape
+    // `IngestionService.runIngestionJob`'s own catch block persists for a
+    // handled failure, just issued straight from the route handler since
+    // `processIngestionTick` deliberately has no DB access of its own.
+    markSourceFailed: async (sourceId, message) => {
+      const { error } = await supabase
+        .from("sources")
+        .update({ status: "error", error_message: message })
+        .eq("id", sourceId)
+      if (error) throw error
+    },
   })
 
   // Part A (empty-chat summary) — regenerate right after the `ready`

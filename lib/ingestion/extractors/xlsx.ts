@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs"
 
+import { assertZipWithinLimits } from "../zip-guard"
 import { toMarkdownTable } from "./markdown-table"
 import type { FileExtraction, FileExtractorInput } from "./types"
 
@@ -18,6 +19,15 @@ import type { FileExtraction, FileExtractorInput } from "./types"
 export async function extractXlsx(
   input: FileExtractorInput
 ): Promise<FileExtraction> {
+  // Decompression-bomb guard (`zip-guard.ts`): an .xlsx is a ZIP container,
+  // and `workbook.xlsx.load` below fully decompresses every entry into memory
+  // — a 15 MB file whose inner XML expands to GBs would OOM-kill the worker
+  // (uncatchable) before any of this code runs. Verify the declared
+  // uncompressed footprint from the central directory first; a violation (or
+  // anything unverifiable) throws, which `extractContent` maps to the format's
+  // `corrupt` message as a terminal failure.
+  assertZipWithinLimits(input.bytes)
+
   const workbook = new ExcelJS.Workbook()
   // `Uint8Array` → `Buffer` view; ExcelJS's typings ask for its own Buffer
   // alias, which is structurally the Node Buffer this passes.

@@ -227,6 +227,27 @@ export type Database = {
           },
         ]
       }
+      rate_limits: {
+        Row: {
+          bucket: string
+          count: number
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          count?: number
+          user_id: string
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          count?: number
+          user_id?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       sources: {
         Row: {
           content_hash: string | null
@@ -371,6 +392,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_rate_limit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
+        Returns: boolean
+      }
       delete_ingestion_job: { Args: { msg_id: number }; Returns: boolean }
       delete_studio_audio_job: { Args: { msg_id: number }; Returns: boolean }
       enqueue_ingestion_job: { Args: { payload: Json }; Returns: number }

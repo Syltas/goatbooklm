@@ -35,6 +35,20 @@ type StudioArtifactRow = Database["public"]["Tables"]["studio_artifacts"]["Row"]
 
 export const TICK_BUDGET_MS = 240_000
 
+/**
+ * Max REDELIVERIES-WITHOUT-PROGRESS (not raw read_ct — see the checkpoint
+ * comment at its use site below) before the worker dead-letters an audio job
+ * instead of trying again. Unlike `lib/ingestion/worker.ts`'s
+ * `MAX_DELIVERY_ATTEMPTS` (a raw read_ct threshold, valid there because
+ * ingestion jobs never intentionally span multiple ticks), an audio job
+ * LEGITIMATELY spans many ticks — a long script's TTS phase defers at the
+ * time budget and gets redelivered by pgmq on every healthy continuation
+ * too, so raw read_ct alone can't distinguish "many healthy ticks" from
+ * "many crash-redeliveries". Gate on the gap since the last persisted
+ * progress checkpoint instead (Review-Fix Bug 2).
+ */
+export const MAX_CRASH_ATTEMPTS = 5
+
 const GENERIC_FAIL = "Audio-Erzeugung fehlgeschlagen. Bitte erneut versuchen."
 
 export interface AudioWorkerDeps {
@@ -102,6 +116,41 @@ export async function processStudioAudioTick(deps: AudioWorkerDeps): Promise<Tic
       continue
     }
 
+    // read_ct Dead-Letter-Backstop — runs AFTER the not-generating guard
+    // above (Review-Fix Bug 3), so a message lingering against an
+    // already-terminal artifact (e.g. repeated deleteJob failures following
+    // a real ready/failed) is always swept by that guard first and never
+    // clobbered back to `failed` here.
+    //
+    // read_ct also climbs on every HEALTHY multi-tick deferral (Review-Fix
+    // Bug 2: a long/slow-but-progressing job legitimately spans many ticks,
+    // redelivering — and therefore incrementing read_ct — on every one), so
+    // raw read_ct is NOT a reliable crash-attempt count here the way it is
+    // for the ingestion worker (which never intentionally defers). Instead,
+    // compare against the GAP since the last persisted progress checkpoint
+    // (`deliveryCheckpoint`, stamped into `content` by `updateContent` below
+    // on every healthy persist) — only redeliveries with NO intervening
+    // progress count toward the limit. `deliveryCheckpoint` is deliberately
+    // NOT part of the shared `audioContentSchema` (lib/studio/audio-schema.ts,
+    // another agent's file) — read directly off the raw jsonb here so this
+    // fix stays self-contained to this module.
+    const rawContent =
+      row.content && typeof row.content === "object" && !Array.isArray(row.content)
+        ? (row.content as Record<string, unknown>)
+        : null
+    const deliveryCheckpoint =
+      typeof rawContent?.deliveryCheckpoint === "number" ? rawContent.deliveryCheckpoint : 0
+    const crashGap = entry.readCt - deliveryCheckpoint
+    if (crashGap > MAX_CRASH_ATTEMPTS) {
+      console.error(
+        `[studio-audio-worker] job ${entry.msgId} (artifact ${entry.artifactId}) had ${crashGap} redeliveries with no persisted progress (read_ct=${entry.readCt}, checkpoint=${deliveryCheckpoint}) — dead-lettering`
+      )
+      await failArtifact(deps, entry.artifactId, GENERIC_FAIL)
+      await deps.deleteJob(entry.msgId)
+      summary.failed++
+      continue
+    }
+
     const content = parseAudioContent(row.content)
     if (!content) {
       await failArtifact(deps, row.id, GENERIC_FAIL)
@@ -111,7 +160,13 @@ export async function processStudioAudioTick(deps: AudioWorkerDeps): Promise<Tic
     }
 
     try {
-      const outcome = await processJob(deps, row, content, () => deps.now() - startedAt > budget)
+      const outcome = await processJob(
+        deps,
+        row,
+        content,
+        () => deps.now() - startedAt > budget,
+        entry.readCt
+      )
       if (outcome === "deferred") {
         // Zeitbudget erschöpft: Job NICHT löschen — vt läuft ab, der
         // nächste Tick liest denselben Job und setzt am Zwischenstand fort.
@@ -136,7 +191,15 @@ async function processJob(
   deps: AudioWorkerDeps,
   row: StudioArtifactRow,
   content: AudioContent,
-  overBudget: () => boolean
+  overBudget: () => boolean,
+  /**
+   * The current tick's read_ct (`StudioAudioQueueEntry.readCt`) — stamped
+   * into `content.deliveryCheckpoint` on every healthy persist below so the
+   * dead-letter gap check in `processStudioAudioTick` can tell a long,
+   * legitimately multi-tick job apart from a real crash-loop (Review-Fix
+   * Bug 2).
+   */
+  readCt: number
 ): Promise<"done" | "deferred"> {
   let current = content
 
@@ -167,7 +230,7 @@ async function processJob(
       script,
       tts: { done: 0, total: buildDialogueBlocks(script.turns).length, unit: "block" },
     }
-    await updateContent(deps.db, row.id, current)
+    await updateContent(deps.db, row.id, current, readCt)
   }
 
   if (current.phase !== "tts" || !current.script || !current.tts) {
@@ -184,22 +247,38 @@ async function processJob(
   if (current.tts.unit !== "block" || current.tts.total !== blocks.length) {
     startIndex = 0
     current = { ...current, tts: { done: 0, total: blocks.length, unit: "block" } }
-    await updateContent(deps.db, row.id, current)
+    await updateContent(deps.db, row.id, current, readCt)
   }
 
   for (let index = startIndex; index < blocks.length; index++) {
     if (overBudget()) return "deferred"
 
-    const segment = await deps.synthesizeBlock({ turns: blocks[index] })
-    // Upsert-Semantik: Wiederholung nach Crash überschreibt dasselbe
-    // Segment — idempotent.
-    await deps.storage.upload(segmentPath(row, index), segment)
+    const path = segmentPath(row, index)
+
+    // Idempotenz (Review-Fix R2): das Segment kann aus einem vorherigen, am
+    // Zeitbudget oder per Crash abgebrochenen Lauf schon in Storage liegen
+    // — segmentPath ist pro (Artefakt, Index) deterministisch. Existiert es
+    // schon, NICHT erneut (und erneut bei ElevenLabs bezahlt) synthetisieren
+    // — einfach wiederverwenden und mit dem Fortschritt fortfahren.
+    let alreadyExists = true
+    try {
+      await deps.storage.download(path)
+    } catch {
+      alreadyExists = false
+    }
+
+    if (!alreadyExists) {
+      const segment = await deps.synthesizeBlock({ turns: blocks[index] })
+      // Upsert-Semantik: Wiederholung nach Crash überschreibt dasselbe
+      // Segment — idempotent.
+      await deps.storage.upload(path, segment)
+    }
 
     current = {
       ...current,
       tts: { done: index + 1, total: blocks.length, unit: "block" },
     }
-    await updateContent(deps.db, row.id, current)
+    await updateContent(deps.db, row.id, current, readCt)
   }
 
   // Finalisieren: Segmente einsammeln, konkatenieren, final hochladen.
@@ -259,14 +338,27 @@ async function loadSources(
     .map((s) => ({ id: s.id, title: s.title, contentText: s.content_text as string }))
 }
 
+/**
+ * Persists progress AND stamps `deliveryCheckpoint = readCt` alongside it —
+ * this is the "healthy persist" half of the Bug 2 dead-letter gap check in
+ * `processStudioAudioTick`: as long as this runs at least once every
+ * `MAX_CRASH_ATTEMPTS` redeliveries, the gap between the next tick's
+ * (higher) read_ct and this checkpoint stays small, so a long-but-healthy
+ * job is never dead-lettered no matter how many total ticks it takes.
+ * `deliveryCheckpoint` is intentionally NOT part of `AudioContent`/
+ * `audioContentSchema` (see the dead-letter comment above) — merged onto the
+ * jsonb payload here directly, outside that shared type.
+ */
 async function updateContent(
   db: SupabaseClient<Database>,
   artifactId: string,
-  content: AudioContent
+  content: AudioContent,
+  readCt: number
 ): Promise<void> {
+  const payload = { ...content, deliveryCheckpoint: readCt } as unknown as Json
   const { error } = await db
     .from("studio_artifacts")
-    .update({ content: content as unknown as Json })
+    .update({ content: payload })
     .eq("id", artifactId)
   if (error) throw error
 }

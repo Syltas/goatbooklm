@@ -11,6 +11,16 @@ import { SourceNotFoundError, type Source } from "./service"
 export interface WorkerJob {
   msgId: number
   sourceId: string
+  /**
+   * pgmq's per-message delivery counter (`IngestionJob.readCt` in
+   * `lib/ingestion/queue.ts`) — checked against `MAX_DELIVERY_ATTEMPTS`
+   * below BEFORE `runIngestionJob` is ever called again for this job. A job
+   * that keeps crashing the process itself (OOM, a `maxDuration` timeout
+   * kill) never reaches `runIngestionJob`'s own catch block, so without this
+   * check it would be redelivered by pgmq forever, delaying every other job
+   * queued behind it in the same batch.
+   */
+  readCt: number
 }
 
 /**
@@ -33,9 +43,46 @@ function isPoisonWorkerJob(job: WorkerQueueItem): job is PoisonWorkerJob {
   return "invalid" in job && job.invalid === true
 }
 
+/**
+ * Max times pgmq may redeliver a job (its read_ct) before the worker gives
+ * up and dead-letters it instead of leaving it for yet another redelivery.
+ * The normal `runIngestionJob`-throws case already gets its own retries up
+ * to this point — only a delivery ABOVE it is dead-lettered, so a genuinely
+ * transient failure (DB blip, provider hiccup) is unaffected. Five is
+ * generous for that case while still bounding the worst case (an
+ * uncatchable crash — OOM, a `maxDuration` timeout kill — that never reaches
+ * `runIngestionJob`'s own catch block) to a handful of wasted ticks instead
+ * of forever.
+ *
+ * Correctness of this check depends on `app/api/ingestion-worker/route.ts`
+ * reading (`READ_BATCH_SIZE`) exactly ONE message per tick. pgmq's read_ct
+ * increments for every message a batch read returns, including ones the
+ * consumer never got to attempt — with a batch size > 1, a crash on job A
+ * would inflate read_ct (and eventually dead-letter) untouched, healthy
+ * jobs B/C read in the same batch. Do not raise `READ_BATCH_SIZE` above 1
+ * without re-deriving this threshold against a per-job (not per-batch-read)
+ * attempt signal.
+ */
+export const MAX_DELIVERY_ATTEMPTS = 5
+
+const DEAD_LETTER_MESSAGE = "Verarbeitung nach mehreren Versuchen abgebrochen."
+
 export interface WorkerTickDeps {
   runIngestionJob: (data: { sourceId: string }) => Promise<Source>
   deleteJob: (msgId: number) => Promise<void>
+  /**
+   * Marks a source row terminally failed WITHOUT running the pipeline again
+   * — used only by the read_ct dead-letter path in `processIngestionTick`,
+   * where `sourceId` has already crashed (or killed the whole worker
+   * process) `MAX_DELIVERY_ATTEMPTS` times, so calling `runIngestionJob` once
+   * more would just repeat whatever is crashing it. Persists the same
+   * `sources.status = 'error'` + `error_message` shape `runIngestionJob`'s
+   * own catch block persists for a handled failure (`lib/ingestion/service.ts`)
+   * — wired directly against the `sources` table by the route handler, since
+   * this module deliberately has no direct DB access of its own (see the
+   * module doc comment above).
+   */
+  markSourceFailed: (sourceId: string, message: string) => Promise<void>
 }
 
 export interface WorkerJobResult {
@@ -59,8 +106,13 @@ export interface WorkerJobResult {
    * `lib/ingestion/queue.ts`) — `runIngestionJob` is never even called for
    * these. Also terminal/deleted immediately: there is no `sourceId` to
    * retry against.
+   *
+   * `"deadLettered"` (read_ct dead-letter backstop) = the job's pgmq
+   * redelivery count exceeded `MAX_DELIVERY_ATTEMPTS` — `runIngestionJob`
+   * was never called for it this tick; the source was marked `error`
+   * directly and the job was deleted, same as a handled terminal outcome.
    */
-  status: "ready" | "error" | "crashed" | "notFound" | "invalid"
+  status: "ready" | "error" | "crashed" | "notFound" | "invalid" | "deadLettered"
   errorMessage?: string
   /**
    * The source's notebook — only known when `runIngestionJob` actually
@@ -90,6 +142,27 @@ async function deleteTerminalJob(
   } catch (error) {
     console.error(
       `[ingestion-worker] failed to delete ${reason} job ${msgId}:`,
+      error
+    )
+  }
+}
+
+/**
+ * Best-effort counterpart to `deleteTerminalJob` for the read_ct dead-letter
+ * path — a failure marking the source row must not block the delete that
+ * actually stops the redelivery loop (the primary goal here), so it is only
+ * logged, never re-thrown.
+ */
+async function markSourceFailedBestEffort(
+  deps: WorkerTickDeps,
+  sourceId: string,
+  message: string
+): Promise<void> {
+  try {
+    await deps.markSourceFailed(sourceId, message)
+  } catch (error) {
+    console.error(
+      `[ingestion-worker] failed to mark source ${sourceId} as failed during dead-letter:`,
       error
     )
   }
@@ -127,6 +200,21 @@ export async function processIngestionTick(
       )
       await deleteTerminalJob(deps, job.msgId, "poison")
       results.push({ msgId: job.msgId, sourceId: "", status: "invalid" })
+      continue
+    }
+
+    if (job.readCt > MAX_DELIVERY_ATTEMPTS) {
+      console.error(
+        `[ingestion-worker] job ${job.msgId} (source ${job.sourceId}) exceeded ${MAX_DELIVERY_ATTEMPTS} delivery attempts (read_ct=${job.readCt}) — dead-lettering instead of leaving it for further redelivery`
+      )
+      await markSourceFailedBestEffort(deps, job.sourceId, DEAD_LETTER_MESSAGE)
+      await deleteTerminalJob(deps, job.msgId, "dead-lettered")
+      results.push({
+        msgId: job.msgId,
+        sourceId: job.sourceId,
+        status: "deadLettered",
+        errorMessage: DEAD_LETTER_MESSAGE,
+      })
       continue
     }
 

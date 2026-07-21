@@ -31,6 +31,7 @@ import {
 } from "@/lib/studio/schema"
 import { createStudioService } from "@/lib/studio/service"
 import { shuffleQuizOptions } from "@/lib/studio/shuffle"
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/ratelimit"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
@@ -49,6 +50,12 @@ const STUDIO_MAX_OUTPUT_TOKENS = 8192
 
 const GENERIC_FAIL_MESSAGE =
   "Modell aktuell nicht verfügbar oder überlastet. Bitte erneut versuchen."
+
+const RATE_LIMIT_MESSAGE =
+  "Zu viele Anfragen. Bitte warte einen Moment und versuche es erneut."
+
+const AUDIO_RATE_LIMIT_MESSAGE =
+  "Zu viele Audio-Erzeugungen. Bitte versuche es in einer Stunde erneut."
 
 function provisionalTitle(type: GeneratableType, format: string | null): string {
   if (type === "report" && format) {
@@ -93,6 +100,32 @@ export async function POST(request: Request) {
     return textError("Notizbuch nicht gefunden.", 404)
   }
 
+  // Rate-Limit (studio_generate): jede Generierung — Report/Flashcards/Quiz/
+  // Audio — zählt gegen dieses Budget, VOR jedem Artefakt-Insert/Claim/Enqueue
+  // und vor dem bezahlten Modell-Aufruf. Der Zähler liegt in Postgres
+  // (serverless-safe); der RPC löst den User serverseitig via auth.uid() auf.
+  const generateLimit = await enforceRateLimit(
+    supabase,
+    "studio_generate",
+    RATE_LIMITS.studio_generate
+  )
+  if (!generateLimit.allowed) {
+    return textError(RATE_LIMIT_MESSAGE, 429)
+  }
+
+  // Audio triggert zusätzlich ElevenLabs (per-character TTS) — der teuerste
+  // Pfad. Deshalb ein zweites, deutlich engeres Stundenbudget, das NUR
+  // Audio-Anfragen zählt. Wird in beiden Zweigen (Retry/Create) geprüft,
+  // sobald `type` bekannt ist, aber noch VOR dem Artefakt-Insert/Claim.
+  async function enforceAudioLimit(): Promise<Response | null> {
+    const audioLimit = await enforceRateLimit(
+      supabase,
+      "studio_audio",
+      RATE_LIMITS.studio_audio
+    )
+    return audioLimit.allowed ? null : textError(AUDIO_RATE_LIMIT_MESSAGE, 429)
+  }
+
   let artifactId: string
   let type: GeneratableType
   let format: string | null
@@ -105,6 +138,12 @@ export async function POST(request: Request) {
     }
     type = existing.type as GeneratableType
     format = existing.format
+
+    // Audio-Stundenbudget VOR dem Retry-Claim (kein Artefakt-Reset bei Limit).
+    if (type === "audio") {
+      const limited = await enforceAudioLimit()
+      if (limited) return limited
+    }
 
     // Audio in der TTS-Phase behält seinen Quellen-Snapshot — das bezahlte
     // Skript basiert darauf (Spec Retry-Anpassung). Alle anderen Fälle
@@ -153,6 +192,12 @@ export async function POST(request: Request) {
     type = input.type
     format =
       input.type === "report" || input.type === "audio" ? input.format : null
+
+    // Audio-Stundenbudget VOR dem Artefakt-Insert und dem Key-Gate.
+    if (type === "audio") {
+      const limited = await enforceAudioLimit()
+      if (limited) return limited
+    }
 
     if (input.type === "audio" && !process.env.ELEVENLABS_API_KEY) {
       // Fail-closed VOR jedem Insert/Enqueue (Spec Key-Gate).

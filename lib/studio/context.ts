@@ -1,3 +1,5 @@
+import { escapeForBlock } from "@/lib/chat/prompt"
+
 /**
  * Kontext-Aufbau für Report-Generierung — pure Funktionen, client-safe
  * (der Viewer nutzt `splitLeadingH1` auch für den Live-Stream).
@@ -41,6 +43,15 @@ export function truncateFairly(text: string, budget: number): string {
  * bekommt jede Quelle denselben fairen Anteil (Budget / Quellenanzahl) und
  * wird einzeln 70/30 gekürzt — kein RAG-top-k, Reports brauchen die
  * Gesamtsicht über alle Quellen.
+ *
+ * `title`/`body` laufen durch `escapeForBlock` (dieselbe Funktion wie
+ * `lib/chat/prompt.ts#buildSourceBlock`), NACH der Kürzung — Escaping
+ * verlängert den String nur, das Budget bleibt also exakt. Ohne das könnte
+ * ein `"` im Titel (z. B. ein bösartiger `<title>` einer gecrawlten Webseite,
+ * roh übernommen von `lib/ingestion/service.ts`) das `titel="..."`-Attribut
+ * vorzeitig schließen, oder ein `</quelle>` im Body-Text den Block selbst
+ * aufbrechen und beliebigen Text als Anweisung außerhalb der Quelle
+ * einschleusen (Prompt-Injection über Quelleninhalt).
  */
 export function buildSourcesBlock(
   sources: ContextSource[],
@@ -56,7 +67,9 @@ export function buildSourcesBlock(
         perSourceBudget === Infinity
           ? source.contentText
           : truncateFairly(source.contentText, perSourceBudget)
-      return `<quelle nr="${index + 1}" titel="${source.title}">\n${body}\n</quelle>`
+      const title = escapeForBlock(source.title)
+      const escapedBody = escapeForBlock(body)
+      return `<quelle nr="${index + 1}" titel="${title}">\n${escapedBody}\n</quelle>`
     })
     .join("\n\n")
 }

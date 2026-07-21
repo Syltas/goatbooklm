@@ -118,6 +118,7 @@ function createDeps(
     summarizeDoc: vi.fn().mockResolvedValue("Doc-Zusammenfassung."),
     downloadStorageFile: vi.fn(),
     deleteStorageFile: vi.fn(),
+    deleteStorageFiles: vi.fn().mockResolvedValue(undefined),
     storageFileExists: vi.fn().mockResolvedValue(true),
     createSignedUrl: vi.fn().mockResolvedValue("https://signed.example/img.png"),
     enqueueJob: vi.fn().mockResolvedValue(undefined),
@@ -1723,44 +1724,61 @@ describe("createIngestionService", () => {
   })
 
   describe("deleteStorageObjects", () => {
-    it("happy path: removes every given storage object", async () => {
+    it("happy path: removes every given storage object in one batched call, not per-path", async () => {
       const { client } = createMockClient({})
-      const deleteStorageFile = vi.fn().mockResolvedValue(undefined)
-      const service = createIngestionService(createDeps(client, { deleteStorageFile }))
+      const deleteStorageFiles = vi.fn().mockResolvedValue(undefined)
+      const service = createIngestionService(createDeps(client, { deleteStorageFiles }))
 
       await service.deleteStorageObjects(["u1/a.pdf", "u1/b.pdf"])
 
-      expect(deleteStorageFile).toHaveBeenCalledTimes(2)
-      expect(deleteStorageFile).toHaveBeenCalledWith("u1/a.pdf")
-      expect(deleteStorageFile).toHaveBeenCalledWith("u1/b.pdf")
+      // A single batched round-trip carrying every path — not one awaited call
+      // per path (the old N-round-trip loop).
+      expect(deleteStorageFiles).toHaveBeenCalledTimes(1)
+      expect(deleteStorageFiles).toHaveBeenCalledWith(["u1/a.pdf", "u1/b.pdf"])
     })
 
-    it("error path: a storage delete failure is logged, best-effort, does not throw/block", async () => {
+    it("chunks paths beyond the per-call cap into multiple batched removes", async () => {
       const { client } = createMockClient({})
-      const deleteStorageFile = vi
+      const deleteStorageFiles = vi.fn().mockResolvedValue(undefined)
+      const service = createIngestionService(createDeps(client, { deleteStorageFiles }))
+
+      // 250 paths against a 100-object cap -> 100 + 100 + 50 across 3 calls.
+      const paths = Array.from({ length: 250 }, (_, i) => `u1/f${i}.pdf`)
+      await service.deleteStorageObjects(paths)
+
+      expect(deleteStorageFiles).toHaveBeenCalledTimes(3)
+      expect((deleteStorageFiles.mock.calls[0][0] as string[]).length).toBe(100)
+      expect((deleteStorageFiles.mock.calls[1][0] as string[]).length).toBe(100)
+      expect((deleteStorageFiles.mock.calls[2][0] as string[]).length).toBe(50)
+    })
+
+    it("error path: a batch failure is logged, best-effort, does not throw/block — later chunks still run", async () => {
+      const { client } = createMockClient({})
+      // First chunk rejects, second resolves: the failure must be swallowed
+      // and the remaining chunk must still be attempted.
+      const deleteStorageFiles = vi
         .fn()
         .mockRejectedValueOnce(new Error("storage unavailable"))
         .mockResolvedValueOnce(undefined)
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
-      const service = createIngestionService(createDeps(client, { deleteStorageFile }))
+      const service = createIngestionService(createDeps(client, { deleteStorageFiles }))
 
-      await expect(
-        service.deleteStorageObjects(["u1/a.pdf", "u1/b.pdf"])
-      ).resolves.toBeUndefined()
+      const paths = Array.from({ length: 150 }, (_, i) => `u1/f${i}.pdf`)
+      await expect(service.deleteStorageObjects(paths)).resolves.toBeUndefined()
 
-      expect(deleteStorageFile).toHaveBeenCalledTimes(2)
+      expect(deleteStorageFiles).toHaveBeenCalledTimes(2)
       expect(consoleError).toHaveBeenCalled()
       consoleError.mockRestore()
     })
 
     it("empty list: resolves immediately, no calls made", async () => {
       const { client } = createMockClient({})
-      const deleteStorageFile = vi.fn()
-      const service = createIngestionService(createDeps(client, { deleteStorageFile }))
+      const deleteStorageFiles = vi.fn()
+      const service = createIngestionService(createDeps(client, { deleteStorageFiles }))
 
       await service.deleteStorageObjects([])
 
-      expect(deleteStorageFile).not.toHaveBeenCalled()
+      expect(deleteStorageFiles).not.toHaveBeenCalled()
     })
   })
 })

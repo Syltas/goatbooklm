@@ -31,6 +31,7 @@ import type {
 } from "@/lib/chat/types"
 import { readChunkOffsets } from "@/lib/chat/types"
 import { defaultQueryEmbeddingModel, embedQuery } from "@/lib/embeddings/client"
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/ratelimit"
 import { createClient } from "@/lib/supabase/server"
 
 /**
@@ -52,6 +53,9 @@ export const runtime = "nodejs"
  * unverified assumption (Annahme A-5).
  */
 const CHAT_MODEL_ID = "claude-sonnet-5"
+
+const RATE_LIMIT_MESSAGE =
+  "Zu viele Anfragen. Bitte warte einen Moment und versuche es erneut."
 
 // Multi-granularity retrieval: the hard 0.35 cosine gate is GONE. A broad
 // overview question ("worum geht es in den Quellen?") legitimately scores below
@@ -106,6 +110,16 @@ export async function POST(request: Request) {
   const notebook = await service.assertNotebookOwned(notebookId)
   if (!notebook) {
     return textError("Notizbuch nicht gefunden.", 404)
+  }
+
+  // Rate-Limit VOR jedem bezahlten Aufruf (Embedding + Anthropic-Stream): eine
+  // Anfrage pro Completion. Der Zähler liegt in Postgres (serverless-safe, viele
+  // Vercel-Instanzen teilen sich das Fenster); der RPC löst den User serverseitig
+  // via auth.uid() auf. Fail-open bei RPC-Fehler (siehe enforceRateLimit) — ein
+  // Limiter-Bug darf echte, bereits authentifizierte Nutzer nicht hart sperren.
+  const chatLimit = await enforceRateLimit(supabase, "chat", RATE_LIMITS.chat)
+  if (!chatLimit.allowed) {
+    return textError(RATE_LIMIT_MESSAGE, 429)
   }
 
   // §3.2 step 4 (OV4) — history loaded server-side, never from the client

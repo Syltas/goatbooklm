@@ -180,3 +180,134 @@ describe("renameArtifact", () => {
     expect(result).toBeNull()
   })
 })
+
+const DB_ERROR = { message: "connection refused", code: "ECONNREFUSED" }
+
+describe("assertNotebookOwned", () => {
+  it("happy path: liefert die Row, wenn RLS das Notebook durchlässt", async () => {
+    const { client, callsByTable } = createMockClient({
+      notebooks: [{ data: { id: "nb-1" }, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    const result = await service.assertNotebookOwned("nb-1")
+    expect(result).toEqual({ id: "nb-1" })
+    const eqCall = callsByTable.notebooks.find((c) => c.method === "eq")
+    expect(eqCall?.args).toEqual(["id", "nb-1"])
+  })
+
+  it("returns null for a foreign or non-existent notebook", async () => {
+    const { client } = createMockClient({ notebooks: [{ data: null, error: null }] })
+    const service = createStudioService({ db: client })
+    await expect(service.assertNotebookOwned("nb-x")).resolves.toBeNull()
+  })
+
+  it("error path: wirft den DB-Fehler statt Ownership zu melden", async () => {
+    const { client } = createMockClient({
+      notebooks: [{ data: null, error: DB_ERROR }],
+    })
+    const service = createStudioService({ db: client })
+    await expect(service.assertNotebookOwned("nb-1")).rejects.toEqual(DB_ERROR)
+  })
+})
+
+describe("getOwnedArtifact", () => {
+  it("happy path: liefert die Artefakt-Row", async () => {
+    const row = { id: "art-1", status: "ready" }
+    const { client, callsByTable } = createMockClient({
+      studio_artifacts: [{ data: row, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    const result = await service.getOwnedArtifact("art-1")
+    expect(result).toEqual(row)
+    const eqCall = callsByTable.studio_artifacts.find((c) => c.method === "eq")
+    expect(eqCall?.args).toEqual(["id", "art-1"])
+  })
+
+  it("returns null for a foreign or non-existent artifact", async () => {
+    const { client } = createMockClient({
+      studio_artifacts: [{ data: null, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    await expect(service.getOwnedArtifact("art-x")).resolves.toBeNull()
+  })
+
+  it("error path: wirft den DB-Fehler statt Ownership zu melden", async () => {
+    const { client } = createMockClient({
+      studio_artifacts: [{ data: null, error: DB_ERROR }],
+    })
+    const service = createStudioService({ db: client })
+    await expect(service.getOwnedArtifact("art-1")).rejects.toEqual(DB_ERROR)
+  })
+})
+
+describe("createGeneratingArtifact", () => {
+  it("happy path: inserted eine generating-Row mit allen Feldern", async () => {
+    const row = { id: "art-1", status: "generating" }
+    const { client, callsByTable } = createMockClient({
+      studio_artifacts: [{ data: row, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    const result = await service.createGeneratingArtifact({
+      notebookId: "nb-1",
+      userId: "user-1",
+      type: "report",
+      format: "briefing_doc",
+      provisionalTitle: "Neuer Bericht",
+      sourceIds: ["s1", "s2"],
+    })
+    expect(result).toEqual(row)
+    const insertCall = callsByTable.studio_artifacts.find((c) => c.method === "insert")
+    expect(insertCall?.args[0]).toEqual({
+      notebook_id: "nb-1",
+      user_id: "user-1",
+      type: "report",
+      format: "briefing_doc",
+      title: "Neuer Bericht",
+      status: "generating",
+      source_ids: ["s1", "s2"],
+      content: null,
+    })
+  })
+})
+
+describe("finalizeFailed", () => {
+  it("happy path: setzt status failed + error_message", async () => {
+    const { client, callsByTable } = createMockClient({
+      studio_artifacts: [{ data: null, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    await service.finalizeFailed({ artifactId: "art-1", errorMessage: "Boom" })
+    const updateCall = callsByTable.studio_artifacts.find((c) => c.method === "update")
+    expect(updateCall?.args[0]).toEqual({ status: "failed", error_message: "Boom" })
+    const eqCall = callsByTable.studio_artifacts.find((c) => c.method === "eq")
+    expect(eqCall?.args).toEqual(["id", "art-1"])
+  })
+})
+
+describe("listArtifacts", () => {
+  it("happy path: liefert Artefakte eines Notebooks, neueste zuerst", async () => {
+    const rows = [{ id: "art-2" }, { id: "art-1" }]
+    const { client, callsByTable } = createMockClient({
+      studio_artifacts: [{ data: rows, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    const result = await service.listArtifacts("nb-1")
+    expect(result).toEqual(rows)
+    const eqCall = callsByTable.studio_artifacts.find((c) => c.method === "eq")
+    expect(eqCall?.args).toEqual(["notebook_id", "nb-1"])
+    const orderCall = callsByTable.studio_artifacts.find((c) => c.method === "order")
+    expect(orderCall?.args).toEqual(["created_at", { ascending: false }])
+  })
+})
+
+describe("deleteArtifact", () => {
+  it("happy path: löscht per id", async () => {
+    const { client, callsByTable } = createMockClient({
+      studio_artifacts: [{ data: null, error: null }],
+    })
+    const service = createStudioService({ db: client })
+    await expect(service.deleteArtifact("art-1")).resolves.toBeUndefined()
+    const eqCall = callsByTable.studio_artifacts.find((c) => c.method === "eq")
+    expect(eqCall?.args).toEqual(["id", "art-1"])
+  })
+})

@@ -155,6 +155,11 @@ export interface IngestionDeps {
   summarizeDoc: (text: string) => Promise<string>
   downloadStorageFile: (path: string) => Promise<Uint8Array>
   deleteStorageFile: (path: string) => Promise<void>
+  /** Batched Storage delete — one `.remove(paths)` round-trip for many paths.
+   *  Used by `deleteStorageObjects` on notebook delete so cleaning up every
+   *  file-backed source is a single request per chunk, not one per path (the
+   *  old loop's N sequential round-trips). */
+  deleteStorageFiles: (paths: string[]) => Promise<void>
   /** Eng-Review M2: does a Storage object at this path actually exist? Used
    *  by `retrySource` to distinguish "upload finished, only the enqueue got
    *  lost" (safe to retry) from "upload never finished" (nothing to retry)
@@ -186,6 +191,16 @@ const SIGNED_URL_TTL_SECONDS = 300
  * 500 rows and finish in one batch).
  */
 const CHUNK_INSERT_BATCH_SIZE = 500
+
+/**
+ * Max paths per `deleteStorageFiles` (Storage `.remove`) call in
+ * `deleteStorageObjects`. Supabase's Storage API caps how many objects one
+ * `remove` request may target; 100 is comfortably under any such limit while
+ * still collapsing the common notebook-delete (a handful of file sources)
+ * into a single round-trip. A notebook with more file-backed sources than
+ * this is deleted in a few batched calls rather than hundreds of single ones.
+ */
+const STORAGE_DELETE_BATCH_SIZE = 100
 
 export function createIngestionService(deps: IngestionDeps) {
   return new IngestionService(deps)
@@ -877,11 +892,29 @@ class IngestionService {
    * a Storage-layer failure.
    */
   async deleteStorageObjects(paths: string[]): Promise<void> {
-    for (const path of paths) {
+    if (paths.length === 0) return
+
+    // One batched `.remove(paths)` per chunk instead of a per-path awaited
+    // round-trip. Since the pdf-only filter was dropped from
+    // `getNotebookStoragePaths`, this now covers every file-backed source in
+    // the notebook, so a notebook with many uploads used to fire that many
+    // sequential Storage calls. Chunked because `.remove` has a per-call
+    // object cap (see `STORAGE_DELETE_BATCH_SIZE`).
+    //
+    // Error-tolerant per chunk, exactly as the old per-path loop was: a failed
+    // batch is logged and the remaining chunks still run. By the time this
+    // runs the DB delete the user is waiting on has already succeeded, so a
+    // Storage-layer failure must not throw/block — worst case is a harmless
+    // orphaned object with no row pointing at it.
+    for (let i = 0; i < paths.length; i += STORAGE_DELETE_BATCH_SIZE) {
+      const batch = paths.slice(i, i + STORAGE_DELETE_BATCH_SIZE)
       try {
-        await this.deps.deleteStorageFile(path)
+        await this.deps.deleteStorageFiles(batch)
       } catch (err) {
-        console.error(`[ingestion] failed to delete storage object ${path}:`, err)
+        console.error(
+          `[ingestion] failed to delete ${batch.length} storage object(s):`,
+          err
+        )
       }
     }
   }

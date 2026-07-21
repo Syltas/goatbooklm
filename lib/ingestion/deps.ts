@@ -94,6 +94,18 @@ export function createIngestionDeps(
       if (error) throw error
     },
 
+    async deleteStorageFiles(paths: string[]): Promise<void> {
+      if (paths.length === 0) return
+      // Supabase Storage's `remove` takes the whole array in one round-trip —
+      // this is the batched counterpart to `deleteStorageFile` used by
+      // `deleteStorageObjects` on notebook delete, so cleaning up N file-backed
+      // sources is one request instead of N sequential ones. The service layer
+      // chunks the input so a single call never exceeds the API's per-request
+      // object cap.
+      const { error } = await supabase.storage.from(SOURCES_BUCKET).remove(paths)
+      if (error) throw error
+    },
+
     async storageFileExists(path: string): Promise<boolean> {
       const lastSlash = path.lastIndexOf("/")
       const folder = lastSlash === -1 ? "" : path.slice(0, lastSlash)

@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { Database } from "@/lib/database.types"
 
-import { processStudioAudioTick, type AudioWorkerDeps } from "../audio-worker"
+import {
+  MAX_CRASH_ATTEMPTS,
+  processStudioAudioTick,
+  type AudioWorkerDeps,
+} from "../audio-worker"
 import type { AudioScript } from "../audio-schema"
 
 type QueryResult = { data: unknown; error: unknown }
@@ -89,7 +93,15 @@ function createDeps(overrides: Partial<AudioWorkerDeps> & { db: AudioWorkerDeps[
       upload: vi.fn(async (path: string, data: Uint8Array) => {
         uploads[path] = data
       }),
-      download: vi.fn(async () => new Uint8Array([1, 2, 3])),
+      // Modelliert echtes Storage-Verhalten: download() schlägt fehl, wenn
+      // unter `path` noch nichts hochgeladen wurde — das ist genau die
+      // Grundlage, auf der die Segment-Idempotenz-Prüfung im Worker beruht
+      // (siehe "Segment-Idempotenz"-Describe unten).
+      download: vi.fn(async (path: string) => {
+        const data = uploads[path]
+        if (!data) throw new Error(`not found: ${path}`)
+        return data
+      }),
       remove: vi.fn(async () => undefined),
     },
     concatSegments: vi.fn((segments: Uint8Array[]) => segments[0]),
@@ -207,7 +219,10 @@ describe("Zeitbudget", () => {
         { data: null, error: null }, // ready
       ],
     })
-    const { deps } = createDeps({ db })
+    const { deps, uploads } = createDeps({ db })
+    // Block 0 wurde in einem vorherigen Tick bereits synthetisiert und liegt
+    // in Storage — die Finalisierung lädt es später erneut herunter.
+    uploads["user-1/art-1/segments/0.mp3"] = new Uint8Array([9, 9, 9])
 
     const summary = await processStudioAudioTick(deps)
 
@@ -279,6 +294,189 @@ describe("Kosten-Cap", () => {
 
     expect(summary.failed).toBe(1)
     expect(deps.synthesizeBlock).not.toHaveBeenCalled()
+    expect(deps.deleteJob).toHaveBeenCalledWith(1)
+  })
+})
+
+// read_ct dead-letter backstop — bounds an uncatchable crash-loop (OOM,
+// maxDuration kill) that would otherwise redeliver forever. Unlike ingestion,
+// audio jobs legitimately span many ticks (Zeitbudget-Deferral), so the gate
+// is the GAP since the last persisted-progress checkpoint, not raw read_ct
+// (Review-Fix Bug 2) — and it only runs AFTER the not-generating Message-
+// Guard, so a terminal (ready/failed) artifact is never touched here
+// (Review-Fix Bug 3).
+describe("Dead-Letter (read_ct-Checkpoint-Gap)", () => {
+  it("markiert das Artefakt als failed und löscht den Job, wenn seit dem letzten Checkpoint mehr als MAX_CRASH_ATTEMPTS Redeliveries ohne Fortschritt vergangen sind (kein Checkpoint gesetzt)", async () => {
+    const content = { params: { language: "de", length: "kurz" }, phase: "script" }
+    const { db } = createMockDb({
+      studio_artifacts: [
+        { data: artifactRow(content), error: null }, // Message-Guard-Load
+        { data: null, error: null }, // failArtifact update
+      ],
+    })
+    const { deps } = createDeps({
+      db,
+      readJobs: async () => [
+        { msgId: 1, readCt: MAX_CRASH_ATTEMPTS + 1, artifactId: "art-1" },
+      ],
+    })
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.failed).toBe(1)
+    expect(deps.generateScript).not.toHaveBeenCalled()
+    expect(deps.synthesizeBlock).not.toHaveBeenCalled()
+    expect(deps.deleteJob).toHaveBeenCalledWith(1)
+  })
+
+  it("verarbeitet den Job noch normal, wenn die Lücke seit dem Checkpoint genau auf dem Limit liegt", async () => {
+    const content = { params: { language: "de", length: "kurz" }, phase: "script" }
+    const { db } = createMockDb({
+      studio_artifacts: [
+        { data: artifactRow(content), error: null },
+        { data: null, error: null }, // phase tts
+        { data: null, error: null }, // tts.done = 1
+        { data: null, error: null }, // ready
+      ],
+      sources: [
+        { data: [{ id: "s1", title: "Q", content_text: "Inhalt" }], error: null },
+      ],
+    })
+    const { deps } = createDeps({
+      db,
+      readJobs: async () => [
+        { msgId: 1, readCt: MAX_CRASH_ATTEMPTS, artifactId: "art-1" },
+      ],
+    })
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.processed).toBe(1)
+    expect(deps.generateScript).toHaveBeenCalledTimes(1)
+  })
+
+  it("dead-letter greift NICHT bei einem gesunden Multi-Tick-Job — hohe read_ct, aber der Checkpoint hält Schritt (Review-Fix Bug 2)", async () => {
+    const content = {
+      params: { language: "de", length: "kurz" },
+      phase: "tts",
+      script: LONG_SCRIPT,
+      tts: { done: 1, total: 3, unit: "block" },
+      // Letzter gesunder Persist lief unter read_ct=49 — trotz insgesamt
+      // hoher read_ct ist die Lücke zur aktuellen read_ct (50) nur 1.
+      deliveryCheckpoint: 49,
+    }
+    const { db } = createMockDb({
+      studio_artifacts: [
+        { data: artifactRow(content), error: null },
+        { data: null, error: null }, // tts.done = 2
+        { data: null, error: null }, // tts.done = 3
+        { data: null, error: null }, // ready
+      ],
+    })
+    const { deps, uploads } = createDeps({
+      db,
+      readJobs: async () => [{ msgId: 1, readCt: 50, artifactId: "art-1" }],
+    })
+    // Block 0 wurde in einem der vielen vorherigen, gesunden Ticks bereits
+    // synthetisiert und liegt in Storage.
+    uploads["user-1/art-1/segments/0.mp3"] = new Uint8Array([9, 9, 9])
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.processed).toBe(1)
+    expect(summary.failed).toBe(0)
+    expect(deps.deleteJob).toHaveBeenCalledWith(1)
+  })
+
+  it("dead-letter greift bei einem echten Crash-Loop trotz vorhandenem (aber weit zurückliegendem) Checkpoint", async () => {
+    const content = {
+      params: { language: "de", length: "kurz" },
+      phase: "tts",
+      script: LONG_SCRIPT,
+      tts: { done: 1, total: 3, unit: "block" },
+      deliveryCheckpoint: 10,
+    }
+    const { db } = createMockDb({
+      studio_artifacts: [
+        { data: artifactRow(content), error: null },
+        { data: null, error: null }, // failArtifact update
+      ],
+    })
+    const { deps } = createDeps({
+      db,
+      readJobs: async () => [
+        { msgId: 1, readCt: 10 + MAX_CRASH_ATTEMPTS + 1, artifactId: "art-1" },
+      ],
+    })
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.failed).toBe(1)
+    expect(deps.synthesizeBlock).not.toHaveBeenCalled()
+    expect(deps.deleteJob).toHaveBeenCalledWith(1)
+  })
+
+  it("Message-Guard greift zuerst: ein bereits ready-Artefakt wird trotz hoher read_ct NICHT dead-gelettert (Review-Fix Bug 3)", async () => {
+    const { db } = createMockDb({
+      studio_artifacts: [
+        { data: { ...artifactRow({}), status: "ready" }, error: null },
+      ],
+    })
+    const { deps } = createDeps({
+      db,
+      readJobs: async () => [
+        { msgId: 1, readCt: MAX_CRASH_ATTEMPTS + 100, artifactId: "art-1" },
+      ],
+    })
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.deletedStale).toBe(1)
+    expect(summary.failed).toBe(0)
+    expect(deps.deleteJob).toHaveBeenCalledWith(1)
+  })
+})
+
+// Idempotenz bei Resume nach Crash (Review-Fix R2): ein bereits in Storage
+// vorhandenes Segment darf nicht erneut (und damit erneut bezahlt) bei
+// ElevenLabs synthetisiert werden.
+describe("Segment-Idempotenz (Resume nach Crash)", () => {
+  it("synthetisiert ein bereits in Storage vorhandenes Segment nicht erneut, spätere Segmente aber schon", async () => {
+    const content = {
+      params: { language: "de", length: "kurz" },
+      phase: "tts",
+      script: LONG_SCRIPT,
+      tts: { done: 0, total: 3, unit: "block" },
+    }
+    const { db } = createMockDb({
+      studio_artifacts: [
+        { data: artifactRow(content), error: null },
+        { data: null, error: null }, // tts.done = 1 (Segment 0 übersprungen)
+        { data: null, error: null }, // tts.done = 2
+        { data: null, error: null }, // tts.done = 3
+        { data: null, error: null }, // ready
+      ],
+    })
+    const { deps, uploads } = createDeps({ db })
+    // Segment 0 liegt schon in Storage — z. B. aus einem am Zeitbudget oder
+    // per Crash abgebrochenen vorherigen Lauf.
+    uploads["user-1/art-1/segments/0.mp3"] = new Uint8Array([9, 9, 9])
+
+    const summary = await processStudioAudioTick(deps)
+
+    expect(summary.processed).toBe(1)
+    // Nur Block 1 und 2 werden synthetisiert — Block 0 existiert bereits.
+    expect(deps.synthesizeBlock).toHaveBeenCalledTimes(2)
+    expect(deps.synthesizeBlock).toHaveBeenNthCalledWith(1, {
+      turns: [LONG_SCRIPT.turns[1]],
+    })
+    expect(deps.synthesizeBlock).toHaveBeenNthCalledWith(2, {
+      turns: [LONG_SCRIPT.turns[2]],
+    })
+    expect(deps.storage.upload).not.toHaveBeenCalledWith(
+      "user-1/art-1/segments/0.mp3",
+      expect.anything()
+    )
     expect(deps.deleteJob).toHaveBeenCalledWith(1)
   })
 })

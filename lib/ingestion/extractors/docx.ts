@@ -1,5 +1,6 @@
 import mammoth from "mammoth"
 
+import { assertZipWithinLimits } from "../zip-guard"
 import type { FileExtraction, FileExtractorInput } from "./types"
 
 /**
@@ -21,6 +22,14 @@ import type { FileExtraction, FileExtractorInput } from "./types"
 export async function extractDocx(
   input: FileExtractorInput
 ): Promise<FileExtraction> {
+  // Decompression-bomb guard (`zip-guard.ts`): a .docx is a ZIP container, and
+  // `mammoth.extractRawText` below fully decompresses it into memory — a 15 MB
+  // file whose inner XML expands to GBs would OOM-kill the worker (uncatchable)
+  // before any of this runs. Verify the declared uncompressed footprint from
+  // the central directory first; a violation (or anything unverifiable) throws,
+  // which `extractContent` maps to the format's `corrupt` message terminally.
+  assertZipWithinLimits(input.bytes)
+
   const { value } = await mammoth.extractRawText({
     buffer: Buffer.from(input.bytes),
   })
