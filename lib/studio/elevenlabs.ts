@@ -43,12 +43,16 @@ export class ElevenLabsError extends Error {
   }
 }
 
-function mapStatus(status: number): string {
+function mapError(status: number, body: string): string {
+  // quota_exceeded kommt als 401 mit eigenem error-code (empirisch,
+  // 2026-07-21: "This request exceeds your quota of 10000") — nicht als
+  // 429. Body-Sniffing vor dem Status-Mapping, sonst hieße die Meldung
+  // fälschlich "Key ungültig".
+  if (body.includes("quota_exceeded") || status === 429) {
+    return "ElevenLabs-Kontingent erschöpft. Bitte später erneut versuchen."
+  }
   if (status === 401 || status === 403) {
     return "ElevenLabs-Key ungültig. Bitte ELEVENLABS_API_KEY prüfen."
-  }
-  if (status === 429) {
-    return "ElevenLabs-Kontingent erschöpft. Bitte später erneut versuchen."
   }
   return "Audio-Erzeugung fehlgeschlagen. Bitte erneut versuchen."
 }
@@ -101,7 +105,7 @@ export async function synthesizeTurn(input: SynthesizeTurnInput): Promise<Uint8A
     const body = await response.text().catch(() => "")
     throw new ElevenLabsError(
       `elevenlabs ${response.status}: ${body.slice(0, 300)}`,
-      mapStatus(response.status),
+      mapError(response.status, body),
       response.status
     )
   }
